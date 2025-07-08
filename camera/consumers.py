@@ -10,16 +10,24 @@ from HikSDKHelper import *
 
 
 # 共享队列（线程安全）
-frame_queue =  queue.Queue(maxsize=5)  # 限制队列长度避免内存堆积
-result_queue = queue.Queue(maxsize=5)
+frame_queue =  queue.Queue(maxsize=3)  # 限制队列长度避免内存堆积
+result_queue = queue.Queue(maxsize=3)
 
 class VideoConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.is_connected = False
+        self.stream_task = None
         self.dev = devClass()
         # 设置回调函数
         self.funRealDataCallBack = REALDATACALLBACK(self.real_data_callback)
         self.funcDecCB = DECCBFUNWIN(self.DecCBFun)
+        # 初始化摄像机设备
+        self.dev.Init()
+        self.dev.LoginDev(ip=b'192.168.1.5', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
+        # 启动消费者进程
+        Thread(target=self.capture_thread, daemon=True).start()
+        Thread(target=self.inference_thread, daemon=True).start()
     # 解码回调函数
     def DecCBFun(self,nPort, pBuf, nSize, pFrameInfo, nUser, nReserved2):
         # 解码回调函数
@@ -32,7 +40,8 @@ class VideoConsumer(AsyncWebsocketConsumer):
             frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2BGR_YV12)
             # 非阻塞放入队列，若满则丢弃旧帧
             if frame_queue.full():
-                frame_queue.get()
+                old_frame = frame_queue.get()
+                del old_frame # 显示释放内存
             frame_queue.put(frame)
 
     # 码流回调函数
@@ -84,22 +93,30 @@ class VideoConsumer(AsyncWebsocketConsumer):
             annotated_frame = results[0].plot()  # 获取带有检测结果的帧
             # 非阻塞传递结果
             if result_queue.full():
-                result_queue.get()
+                old_frame = result_queue.get()
+                del old_frame  # 显示释放内存
             result_queue.put(annotated_frame)
 
     async def connect(self):
         await self.accept()
+        self.is_connected = True
+        self.stream_task = asyncio.create_task(self.send_video_frames())
 
-        # 初始化摄像机设备
-        self.dev.Init()
-        self.dev.LoginDev(ip=b'192.168.1.5', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
-        # 启动消费者进程
-        Thread(target=self.capture_thread, daemon=True).start()
-        Thread(target=self.inference_thread, daemon=True).start()
-        # 持续发送推理结果
-        while True:
+    async def disconnect(self, close_code):
+        self.is_connected = False  # 标记连接已断开
+        if self.stream_task:
+            self.stream_task.cancel()  # 停止发送任务
+            try:
+                await self.stream_task  # 等待任务正式结束
+            except asyncio.CancelledError:
+                pass
+
+    async def send_video_frames(self):
+        """视频帧发送主循环"""
+        while self.is_connected:
             if not result_queue.empty():
                 frame = result_queue.get()
                 _, buffer = cv2.imencode('.jpg', frame)
                 await self.send(text_data=base64.b64encode(buffer).decode())
-            await asyncio.sleep(0.01)  # 避免空转占用CPU
+            await asyncio.sleep(0.03)  # 控制帧率
+

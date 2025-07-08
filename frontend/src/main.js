@@ -19,7 +19,12 @@ const vuetify = createVuetify({
   directives,
 })
 
-app.use(router,createPinia(),vuetify,VueAxios, axios)
+// 注册插件
+app.use(router)          // 路由
+app.use(createPinia())   // 状态管理
+app.use(vuetify)         // Vuetify
+app.use(VueAxios, axios) // VueAxios
+
 // app.config.productionTip = false
 //
 // const api = axios.create({

@@ -15,6 +15,7 @@
 
 <script>
 import Chart from 'chart.js/auto';
+import { classStore } from '@/stores/classStore.js';
 
 export default {
   name: 'BehaviorChart',
@@ -23,22 +24,18 @@ export default {
       chart: null,
       range: 'today',
       stats: {
-        '站立': 0,
-        '走动': 0,
-        '跑动': 0
+        '站立': 4,
+        '走动': 5,
+        '跑动': 21
       }
     };
-  },
-  async mounted() {
-    await this.loadData('today');
-    this.renderChart();
   },
   methods: {
     async loadData(range) {
       this.range = range;
       try {
-        const response = await this.$store.dispatch('fetchBehaviorStats', { range });
-        this.stats = response.data;
+        this.stats = classStore().getBehaviorData(range)
+        console.log(this.stats);
         if (this.chart) {
           this.updateChart();
         } else {
@@ -96,11 +93,14 @@ export default {
       this.chart.data.datasets[0].data = Object.values(this.stats);
       this.chart.update();
     },
-    beforeDestroy() {
+  },
+  mounted() {
+    this.loadData('today');
+  },
+  beforeUnmount() {
     if (this.chart) {
       this.chart.destroy();
     }
-  }
   }
 };
 </script>
