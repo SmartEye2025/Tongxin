@@ -22,4 +22,11 @@ from camera import views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-]+ static(settings.MEDIA_URL,document_root=settings.MEDIA_ROOT)
+    path("get_studentList/", views.get_studenList),
+    path('edit_studentInfo/', views.edit_studentInfo),
+    path('add_student/', views.add_student),
+    path('delete_student/', views.delete_student),
+    path('send_mqtt/', views.send_mqtt),
+    path('uploadH/', views.uploadH),
+    path('getH/', views.getH),
+]

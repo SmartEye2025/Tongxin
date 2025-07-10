@@ -2,7 +2,7 @@
   <div class="calibration-tool">
     <!-- 教室平面图 -->
     <div class="image-container" @click="handleImageClick">
-      <img ref="classroomImg" src="@/assets/classroom.jpg" alt="教室平面图">
+      <img ref="classroomImg" :src="imgSrc" alt="教室平面图">
       <canvas ref="gridCanvas" class="overlay-canvas"></canvas>
       <!-- 标定点标记 -->
       <div v-for="(point, index) in calibrationPoints" :key="index"
@@ -51,14 +51,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { matrix, multiply,lusolve, inv } from 'mathjs';
+import {classroomStore} from "@/stores/classroomStore.js";
+import request from "@/utils/request.js";
 
 // 标定点数据
 const calibrationPoints = ref([]);
 const H = ref(null);
 const Hinv = ref(null);
 const classroomImg = ref(null);
+const imgSrc = ref('/src/assets/classroom.jpg');
 // 绘制网格
 const showGrid = ref(false);
 const gridCanvas = ref(null);
@@ -122,6 +125,8 @@ const computeHomography=() =>{
   H.value.toArray();
   Hinv.value.toArray();
   showGrid.value = true;
+  // 上传后端
+  uploadH();
 }
 
 // /**
@@ -166,19 +171,18 @@ const worldToPixel=(X, Y)=> {
 
 // 绘制网格
 const drawGrid = () => {
-  if (!H.value || !gridCanvas.value) return;
-
+  if (!Hinv.value || !gridCanvas.value) return;
   const ctx = gridCanvas.value.getContext('2d');
   ctx.clearRect(0, 0, gridCanvas.value.width, gridCanvas.value.height);
 
   // 绘制网格
   ctx.strokeStyle = 'rgba(0, 150, 255, 0.7)';
+  ctx.fillStyle = 'rgba(0,255,72,0.8)';
   ctx.lineWidth = 1;
-  ctx.fillStyle = 'blue';
 
   // 教室物理尺寸 (根据实际情况调整)
-  const widthMeters = 10;
-  const lengthMeters = 10;
+  const widthMeters = 12;
+  const lengthMeters = 12;
   const step = 1; // 1米间隔
 
   // 绘制水平网格线
@@ -204,7 +208,7 @@ const drawGrid = () => {
     ctx.stroke();
 
     // 绘制刻度标签
-    ctx.fillText(`${x}m`, startX, startY - 10);
+    ctx.fillText(`${x}m`, startX-5, startY + 12);
   }
 };
 
@@ -230,6 +234,8 @@ const syncCanvasSize = () => {
 };
 
 onMounted(() => {
+  getH()
+  imgSrc.value = classroomStore().classroomImg || imgSrc.value;
   const img = classroomImg.value;
   if (img.complete) {
     syncCanvasSize();
@@ -240,20 +246,27 @@ onMounted(() => {
 
 // 监听变化
 watch([showGrid, H], () => {
-  if (showGrid.value) drawGrid();
+  if (showGrid.value && H.value) drawGrid();
 });
-// // 将标定结果发送到后端
-// const uploadCalibration = async () => {
-//   const response = await fetch('/api/calibration', {
-//     method: 'POST',
-//     headers: { 'Content-Type': 'application/json' },
-//     body: JSON.stringify({
-//       matrix: transformMatrix.value,
-//       timestamp: new Date().toISOString()
-//     })
-//   });
-//   return response.json();
-// };
+// 将标定结果发送到后端
+const uploadH = async () => {
+  const data = JSON.stringify({
+      matrix: H.value,
+      timestamp: new Date().toISOString()
+    })
+  const response = await request.post('/uploadH/',data)
+  console.log(response)
+};
+// 从后端获取H矩阵
+const getH = async () => {
+  const response =  await request.get('/getH/')
+  console.log(response.matrix.data)
+  if (response.success) {
+    H.value = response.matrix.data;
+    Hinv.value = inv(H.value);
+    showGrid.value = true;
+  }
+};
 </script>
 
 <style scoped>

@@ -3,17 +3,11 @@
     <div class="welcome-section">
       <h1>欢迎使用 “瞳心” 智慧课堂系统</h1>
       <p class="subtitle">慧眼洞察，智联童心，科技伴成长 </p>
-
-      <div class="quick-actions">
-        <button class="primary-btn">创建新课程</button>
-        <button class="secondary-btn">导入学生名单</button>
-        <button class="secondary-btn">查看教学日历</button>
-      </div>
     </div>
 
     <!-- 功能卡片网格 -->
     <div class="features-grid">
-      <div v-for="feature in features" :key="feature.id" class="feature-card">
+      <div v-for="feature in features" :key="feature.id" @click="navigate(feature.page)" class="feature-card">
         <div class="feature-icon">{{ feature.icon }}</div>
         <h3>{{ feature.title }}</h3>
         <p>{{ feature.desc }}</p>
@@ -53,23 +47,28 @@
   </div>
 </template>
 
-<script setup>
-import { ref } from 'vue'
-
-// 功能卡片数据
-const features = ref([
-  { id: 1, title: '课程管理', icon: '📚', desc: '创建与管理课程内容' },
-  { id: 2, title: '学生管理', icon: '👨‍🎓', desc: '管理学生信息与分组' },
-  { id: 3, title: '数据统计', icon: '📊', desc: '学习数据分析报表' },
-])
-
-// 最新通知数据
-const notifications = ref([
-  { id: 1, text: '系统将于本周五凌晨进行维护升级', time: '2小时前' },
-  { id: 2, text: '新增AI作业批改功能已上线', time: '1天前' },
-  { id: 3, text: '暑期教师培训计划已发布', time: '3天前' }
-])
-
+<script>
+export default {
+  data() {
+    return {
+      features:[
+        { id: 1, title: '教室管理', icon: '📚', desc: '管理教室信息', page:'/classroom' },
+        { id: 2, title: '学生管理', icon: '👨‍🎓', desc: '管理学生信息与分组', page:'/students' },
+        { id: 3, title: '数据统计', icon: '📊', desc: '学生注意力数据分析报表', page:'/analytics' },
+      ],
+      notifications:[
+        { id: 1, text: '系统将于本周五凌晨进行维护升级', time: '2小时前' },
+        { id: 2, text: '新增AI作业批改功能已上线', time: '1天前' },
+        { id: 3, text: '暑期教师培训计划已发布', time: '3天前' }
+      ]
+    }
+  },
+  methods: {
+    navigate(page) {
+      this.$router.push(page)
+    }
+  }
+}
 </script>
 
 <style scoped>

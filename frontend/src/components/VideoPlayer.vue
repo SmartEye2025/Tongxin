@@ -24,6 +24,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import {classroomStore} from "@/stores/classroomStore.js";
 
 const playerContainer = ref(null);
 const videoCanvas = ref(null);
@@ -33,8 +34,8 @@ const img = new Image();
 
 // 原始尺寸设置
 const originalSize = {
-  width: 640,
-  height: 360
+  width: 800,
+  height: 450
 };
 
 const statusMessages = {
@@ -53,7 +54,7 @@ const initWebSocket = () => {
   const ctx = canvas.getContext('2d');
 
   try {
-    socket = new WebSocket(`ws://localhost:8000/ws/video/`);
+    socket = new WebSocket(`ws://localhost:8001/ws/video/`);
 
     socket.onopen = () => {
       connectionStatus.value = 'connected';
@@ -61,6 +62,7 @@ const initWebSocket = () => {
 
     socket.onmessage = (event) => {
       img.src = 'data:image/jpeg;base64,' + event.data;
+      classroomStore().setImg('data:image/jpeg;base64,' + event.data)
       // img.onload = () => ctx.drawImage(img, 0, 0, 640, 360);
 
       // 计算最佳缩放比例
@@ -136,8 +138,8 @@ onUnmounted(() => {
 <style scoped>
 .video-player {
   position: relative;
-  width: 640px;
-  height: 360px;
+  width: 800px;
+  height: 450px;
   margin: 0 auto;
   border-radius: 8px;
   overflow: hidden;

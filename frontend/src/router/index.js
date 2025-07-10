@@ -4,6 +4,9 @@ import LoginPage from '../views/LoginPage.vue'
 import MainView from '../views/MainView.vue'
 import RealVideoView from "@/views/RealVideoView.vue";
 import CoordinateAlign from "@/views/CoordinateAlign.vue";
+import ClassroomView from "@/components/ClassView.vue";
+import StudentsView from "@/views/StudentsView.vue";
+import AnalyticsView from "@/views/AnalyticsView.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -42,6 +45,21 @@ const router = createRouter({
           component: () => import('../views/AboutView.vue'),
         }
       ]
+    },
+    {
+      path: '/classroom',
+      name: 'classroom',
+      component: ClassroomView,
+    },
+    {
+      path: '/Students',
+      name: 'students',
+      component: StudentsView,
+    },
+    {
+      path: '/analytics',
+      name: 'analytics',
+      component: AnalyticsView,
     },
   ],
 })

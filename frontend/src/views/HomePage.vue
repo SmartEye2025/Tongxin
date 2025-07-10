@@ -34,7 +34,6 @@
 </template>
 
 <script>
-// import {userStore} from "@/stores/userStore.js";
 
 export default {
   data(){
