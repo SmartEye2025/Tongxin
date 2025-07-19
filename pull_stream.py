@@ -11,7 +11,7 @@ result_queue = queue.Queue(maxsize=3)
 
 def capture_thread():
     # RTSP拉流（需摄像机开启RTSP服务）
-    rtsp_url = "rtsp://admin:SHENG666sheng@192.168.1.5:554/Streaming/Channels/101"
+    rtsp_url = "rtsp://admin:SHENG666sheng@192.168.1.6:554/Streaming/Channels/101"
     cap = cv2.VideoCapture(rtsp_url)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减少缓冲区
     cap.set(cv2.CAP_PROP_FPS, 30)  # 设置预期FPS

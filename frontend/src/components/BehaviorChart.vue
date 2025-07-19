@@ -1,12 +1,6 @@
 <template>
   <div class="chart-container">
     <h3>学生行为统计</h3>
-<!--    <div class="time-range-selector">-->
-<!--      <v-btn small @click="loadData('today')" :color="range === 'today' ? 'primary' : ''">今日</v-btn>-->
-<!--      <v-btn small @click="loadData('week')" :color="range === 'week' ? 'primary' : ''">本周</v-btn>-->
-<!--      <v-btn small @click="loadData('all')" :color="range === 'all' ? 'primary' : ''">全部</v-btn>-->
-<!--    </div>-->
-
     <div class="chart-wrapper">
       <canvas id="doughnutChart"></canvas>
     </div>
@@ -35,7 +29,7 @@ export default {
     };
   },
   computed: {
-    ...mapState(timeRangeStore, ['range', 'timeRangeLabel'])
+    ...mapState(timeRangeStore, ['range'])
   },
   watch: {
     range: {
@@ -51,9 +45,27 @@ export default {
     }
   },
   methods: {
+    // 状态文本
+    getStatusText(status) {
+      switch(status) {
+        case 'offSeat': return '离座'
+        case 'run': return '跑动'
+        case 'lookAround': return '东张西望'
+        case 'stand': return '站立'
+        case 'sleeping': return '瞌睡'
+        default: return '正常'
+      }
+    },
     async loadData(range) {
       try {
-        this.stats = classStore().getBehaviorData(range)
+        console.log(range);
+        //  替换键
+        this.stats = Object.fromEntries(
+          Object.entries(classStore().behaviorStats).map(([key, value]) => [
+            this.getStatusText(key),
+            value
+          ])
+        );
         if (this.chart) {
           this.updateChart();
         } else {

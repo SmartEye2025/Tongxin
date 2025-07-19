@@ -29,4 +29,7 @@ urlpatterns = [
     path('send_mqtt/', views.send_mqtt),
     path('uploadH/', views.uploadH),
     path('getH/', views.getH),
+    path('get_frame/', views.get_frame),
+    path('get_calibration/',views.get_calibration),
+    path('upload_calibration/',views.upload_calibration),
 ]

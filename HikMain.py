@@ -38,7 +38,6 @@ class devClass:
             strPath = basePath + b'\lib'
             sdk_ComPath = NET_DVR_LOCAL_SDK_PATH()
             sdk_ComPath.sPath = strPath
-            print('strPath: ', strPath)
             if self.hikSDK.NET_DVR_SetSDKInitCfg(NET_SDK_INIT_CFG_TYPE.NET_SDK_INIT_CFG_SDK_PATH.value,
                                                  byref(sdk_ComPath)):
                 print('NET_DVR_SetSDKInitCfg: 2 Succ')
@@ -268,7 +267,7 @@ if __name__ == '__main__':
     dev.SetSDKInitCfg()  # 设置SDK初始化依赖库路径
     dev.hikSDK.NET_DVR_Init()  # 初始化sdk
     dev.GeneralSetting()  # 通用设置，日志，回调函数等
-    dev.LoginDev(ip=b'192.168.1.5', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
+    dev.LoginDev(ip=b'192.168.1.6', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
     dev.startPlay(playTime=5)  # playTime用于linux环境控制预览时长，windows环境无效
     dev.stopPlay()
     dev.LogoutDev()

@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-q=@&uo07tdu$9!p%24&j5ueey=-s8v)*l-$v7*t9^h8)!x2m+c
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1','localhost']
+ALLOWED_HOSTS = ['127.0.0.1','localhost','192.168.1.2']
 
 
 # Application definition
@@ -53,13 +53,25 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+# 配置缓存
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",  # 使用DB 1
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "PICKLE_VERSION": -1  # 使用最新pickle协议
+        }
+    }
+}
+
 # WebSocket通道层配置
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",  # 开发用
+        # "BACKEND": "channels.layers.InMemoryChannelLayer",  # 开发用
         # 生产环境建议使用Redis：
-        # "BACKEND": "channels_redis.core.RedisChannelLayer",
-        # "CONFIG": {"hosts": [("127.0.0.1", 6379)]},
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [("redis://127.0.0.1:6379/2")]},  # 使用DB 2
     },
 }
 

@@ -52,7 +52,7 @@ export default {
   data() {
     return {
       features:[
-        { id: 1, title: '教室管理', icon: '📚', desc: '管理教室信息', page:'/classroom' },
+        { id: 1, title: '标定坐标', icon: '📚', desc: '标定教室坐标体系', page:'/classroom' },
         { id: 2, title: '学生管理', icon: '👨‍🎓', desc: '管理学生信息与分组', page:'/students' },
         { id: 3, title: '数据统计', icon: '📊', desc: '学生注意力数据分析报表', page:'/analytics' },
       ],

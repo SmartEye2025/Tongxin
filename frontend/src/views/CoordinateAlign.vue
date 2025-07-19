@@ -53,7 +53,6 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue';
 import { matrix, multiply,lusolve, inv } from 'mathjs';
-import {classroomStore} from "@/stores/classroomStore.js";
 import request from "@/utils/request.js";
 
 // 标定点数据
@@ -131,15 +130,15 @@ const computeHomography=() =>{
 
 // /**
 //  * 从像素坐标转换到物理坐标
-//  * @param {number} x 像素x坐标
-//  * @param {number} y 像素y坐标
+//  * @param {number} X 像素x坐标
+//  * @param {number} Y 像素y坐标
 //  * @returns {Array} 物理坐标 [X, Y]
 //  */
 // const pixelToWorld=(X, Y)=> {
-//     if (!this.H) throw new Error("请先计算单应性矩阵");
+//     if (!H.value) throw new Error("请先计算单应性矩阵");
 //
-//     const pixelVec = math.matrix([[x], [y], [1]]);
-//     const worldVec = math.multiply(this.H, pixelVec);
+//     const pixelVec = matrix([[X], [Y], [1]]);
+//     const worldVec = multiply(H.value, pixelVec);
 //
 //     // 转换为非齐次坐标
 //     const w = worldVec.get([2, 0]);
@@ -173,22 +172,24 @@ const worldToPixel=(X, Y)=> {
 const drawGrid = () => {
   if (!Hinv.value || !gridCanvas.value) return;
   const ctx = gridCanvas.value.getContext('2d');
-  ctx.clearRect(0, 0, gridCanvas.value.width, gridCanvas.value.height);
+  const canvasWidth = gridCanvas.value.width;
+  const canvasHeight = gridCanvas.value.height;
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
   // 绘制网格
   ctx.strokeStyle = 'rgba(0, 150, 255, 0.7)';
   ctx.fillStyle = 'rgba(0,255,72,0.8)';
   ctx.lineWidth = 1;
 
-  // 教室物理尺寸 (根据实际情况调整)
-  const widthMeters = 12;
-  const lengthMeters = 12;
+  // 实际教室尺寸
+  const classroomWidth = 12;
+  const classroomHeight = 14;
   const step = 1; // 1米间隔
 
   // 绘制水平网格线
-  for (let y = 0; y <= lengthMeters; y += step) {
+  for (let y = 0; y <= classroomHeight; y += step) {
     const [startX, startY] = worldToPixel(0, y);
-    const [endX, endY] = worldToPixel(widthMeters, y);
+    const [endX, endY] = worldToPixel(classroomWidth, y);
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.lineTo(endX, endY);
@@ -199,9 +200,9 @@ const drawGrid = () => {
   }
 
   // 绘制垂直网格线
-  for (let x = 0; x <= widthMeters; x += step) {
+  for (let x = 0; x <= classroomWidth; x += step) {
     const [startX, startY] = worldToPixel(x, 0);
-    const [endX, endY] = worldToPixel(x, lengthMeters);
+    const [endX, endY] = worldToPixel(x, classroomHeight);
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.lineTo(endX, endY);
@@ -228,14 +229,47 @@ const drawGrid = () => {
 // 初始化canvas尺寸
 const syncCanvasSize = () => {
   const img = classroomImg.value;
-  gridCanvas.value.width = img.naturalWidth || img.width;
-  gridCanvas.value.height = img.naturalHeight || img.height;
+  gridCanvas.value.width = img.width || img.naturalWidth;
+  gridCanvas.value.height = img.height || img.naturalHeight ;
+
   if (showGrid.value) drawGrid();
+};
+// 将标定结果发送到后端
+const uploadH = async () => {
+  const data = JSON.stringify({
+      class_id: '001',
+      matrix: H.value
+    })
+  const response = await request.post('/uploadH/',data)
+  console.log(response)
+};
+// 从后端获取H矩阵
+const getH = async () => {
+  const response =  await request.get('/getH/')
+  console.log(response)
+  if (response.success) {
+    H.value = response.matrix.data;
+    Hinv.value = inv(H.value);
+    showGrid.value = true;
+  }
+};
+// 从后端获取实时帧
+const get_frame = async () => {
+  try {
+    const response = await request.get('/get_frame/');
+    if (response.data) {
+      imgSrc.value = `data:image/jpeg;base64,${response.data}`;
+    }
+  } catch (error) {
+    console.log('更新帧失败:', error);
+  }
 };
 
 onMounted(() => {
+  // 获取透视变换矩阵
   getH()
-  imgSrc.value = classroomStore().classroomImg || imgSrc.value;
+  // 获取当前视频帧
+  get_frame()
   const img = classroomImg.value;
   if (img.complete) {
     syncCanvasSize();
@@ -248,25 +282,7 @@ onMounted(() => {
 watch([showGrid, H], () => {
   if (showGrid.value && H.value) drawGrid();
 });
-// 将标定结果发送到后端
-const uploadH = async () => {
-  const data = JSON.stringify({
-      matrix: H.value,
-      timestamp: new Date().toISOString()
-    })
-  const response = await request.post('/uploadH/',data)
-  console.log(response)
-};
-// 从后端获取H矩阵
-const getH = async () => {
-  const response =  await request.get('/getH/')
-  console.log(response.matrix.data)
-  if (response.success) {
-    H.value = response.matrix.data;
-    Hinv.value = inv(H.value);
-    showGrid.value = true;
-  }
-};
+
 </script>
 
 <style scoped>
@@ -284,8 +300,8 @@ const getH = async () => {
 }
 
 .image-container img {
-  max-width: 800px;
-  max-height: 600px;
+  max-width: 960px;
+  max-height: 540px;
 }
 .overlay-canvas {
   position: absolute;

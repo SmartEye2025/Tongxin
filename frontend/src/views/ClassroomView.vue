@@ -1,218 +1,255 @@
 <template>
-  <div class="classroom-management">
-    <h2>教室管理</h2>
-
-    <!-- 教室列表 -->
-    <div class="classroom-list">
-      <div v-for="room in classrooms" :key="room.id" class="classroom-card">
-        <div class="room-info">
-          <h3>{{ room.name }}</h3>
-          <p>容量: {{ room.capacity }}人</p>
-          <p>设备状态:
-            <span :class="{'status-active': room.status === 'active',
-                          'status-inactive': room.status !== 'active'}">
-              {{ room.status === 'active' ? '正常' : '维护中' }}
-            </span>
-          </p>
-        </div>
-        <div class="room-actions">
-          <button @click="editClassroom(room)">编辑</button>
-          <button @click="monitorClassroom(room.id)">实时监控</button>
-        </div>
+  <div class="calibration-system">
+    <!-- 标题和操作区 -->
+    <div class="header">
+      <h2>教室坐标标定系统</h2>
+      <div class="controls">
+        <v-btn color="primary" @click="saveCalibration">保存标定</v-btn>
+        <v-btn color="secondary" @click="resetAll">重置</v-btn>
       </div>
     </div>
 
-    <!-- 添加/编辑教室对话框 -->
-    <dialog ref="classroomDialog">
-      <h3>{{ editingRoom ? '编辑教室' : '添加教室' }}</h3>
-      <form @submit.prevent="saveClassroom">
-        <div class="form-group">
-          <label>教室名称</label>
-          <input v-model="currentRoom.name" required>
+    <!-- 主内容区 -->
+    <div class="content">
+      <!-- 左侧：坐标输入表单 -->
+      <div class="input-panel">
+        <div class="base-station">
+          <h3>定位基站坐标 (cm)</h3>
+          <v-text-field v-model.number="baseStations.A.x" label="基站A X坐标" type="number"></v-text-field>
+          <v-text-field v-model.number="baseStations.A.y" label="基站A Y坐标" type="number"></v-text-field>
+
+          <v-text-field v-model.number="baseStations.B.x" label="基站B X坐标" type="number"></v-text-field>
+          <v-text-field v-model.number="baseStations.B.y" label="基站B Y坐标" type="number"></v-text-field>
+
+          <v-text-field v-model.number="baseStations.C.x" label="基站C X坐标" type="number"></v-text-field>
+          <v-text-field v-model.number="baseStations.C.y" label="基站C Y坐标" type="number"></v-text-field>
+
+          <v-text-field v-model.number="baseZ" label="基站共同Z坐标" type="number"></v-text-field>
         </div>
-        <div class="form-group">
-          <label>教室容量</label>
-          <input v-model="currentRoom.capacity" type="number" required>
+
+        <div class="servo-panel">
+          <h3>舵机云台坐标 (cm)</h3>
+          <v-text-field v-model.number="servoOrigin.x" label="云台原点 X坐标" type="number"></v-text-field>
+          <v-text-field v-model.number="servoOrigin.y" label="云台原点 Y坐标" type="number"></v-text-field>
+          <v-text-field v-model.number="servoOrigin.z" label="云台原点 Z坐标" type="number"></v-text-field>
         </div>
-        <div class="form-group">
-          <label>状态</label>
-          <select v-model="currentRoom.status">
-            <option value="active">正常</option>
-            <option value="maintenance">维护中</option>
-          </select>
+      </div>
+
+      <!-- 右侧：坐标可视化 -->
+      <div class="visualization">
+        <h3>教室平面图 (比例尺: 1px = 1cm)</h3>
+        <div class="classroom-map" ref="mapContainer">
+          <!-- 基站标记 -->
+          <div
+            v-for="(station, id) in baseStations"
+            :key="id"
+            class="base-station-marker"
+            :style="{
+              left: `${station.x}px`,
+              top: `${station.y}px`,
+              backgroundColor: markerColors[id]
+            }"
+            :title="`基站${id} (${station.x},${station.y})`"
+          >{{ id }}</div>
+
+          <!-- 云台标记 -->
+          <div
+            class="servo-marker"
+            :style="{
+              left: `${servoOrigin.x}px`,
+              top: `${servoOrigin.y}px`
+            }"
+            :title="`云台原点 (${servoOrigin.x},${servoOrigin.y})`"
+          >云台</div>
+
+          <!-- 坐标轴 -->
+          <div class="axis x-axis"></div>
+          <div class="axis y-axis"></div>
         </div>
-        <div class="dialog-actions">
-          <button type="button" @click="closeDialog">取消</button>
-          <button type="submit">保存</button>
-        </div>
-      </form>
-    </dialog>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref,onMounted } from 'vue';
+import request from "@/utils/request.js";
 
-const classrooms = ref([
-  { id: 1, name: '阳光教室', capacity: 15, status: 'active' },
-  { id: 2, name: '彩虹教室', capacity: 12, status: 'active' },
-  { id: 3, name: '星星教室', capacity: 10, status: 'maintenance' }
-]);
-
-const classroomDialog = ref(null);
-const editingRoom = ref(false);
-const currentRoom = ref({
-  id: null,
-  name: '',
-  capacity: 10,
-  status: 'active'
+// 基站坐标数据
+const baseStations = ref({
+    A: { x: 250, y: 0 },
+    B: { x: 500, y: 500 },
+    C: { x: 0, y: 500 }
 });
-
-const editClassroom = (room) => {
-  currentRoom.value = { ...room };
-  editingRoom.value = true;
-  classroomDialog.value.showModal();
+// 基站共同Z坐标
+const baseZ = ref(60)
+// 舵机云台原点坐标
+const servoOrigin = ref({ x: 250, y: 250, z: 280 });
+// 标记颜色
+const markerColors = {
+  A: '#FF5252',
+  B: '#4CAF50',
+  C: '#2196F3'
 };
 
-const monitorClassroom = (roomId) => {
-  // 跳转到教室监控页面
-  console.log('监控教室:', roomId);
-};
-
-const saveClassroom = () => {
-  if (editingRoom.value) {
-    // 更新教室
-    const index = classrooms.value.findIndex(r => r.id === currentRoom.value.id);
-    classrooms.value[index] = { ...currentRoom.value };
-  } else {
-    // 添加教室
-    const newId = Math.max(...classrooms.value.map(r => r.id)) + 1;
-    classrooms.value.push({ ...currentRoom.value, id: newId });
-  }
-  closeDialog();
-};
-
-const closeDialog = () => {
-  classroomDialog.value.close();
-  resetForm();
-};
-
-const resetForm = () => {
-  currentRoom.value = {
-    id: null,
-    name: '',
-    capacity: 10,
-    status: 'active'
+// 保存标定数据
+const saveCalibration = () => {
+  const calibrationData = {
+    class_id:'001',
+    baseStations: baseStations.value,
+    baseZ: baseZ.value,
+    servoOrigin: servoOrigin.value,
   };
-  editingRoom.value = false;
+  request.post('/upload_calibration/',calibrationData).then(response => {
+    if (response.success) console.log('标定数据已保存:', calibrationData);
+  })
 };
+
+// 重置所有坐标
+const resetAll = () => {
+  baseStations.value = {
+    A: { x: 250, y: 0 },
+    B: { x: 500, y: 500 },
+    C: { x: 0, y: 500 }
+  };
+  baseZ.value = 60;
+  servoOrigin.value = { x: 250, y: 250, z: 280};
+};
+
+onMounted(() => {
+  const markers = document.querySelectorAll('.base-station-marker, .servo-marker');
+  request.get('/get_calibration/').then(response => {
+    if (response.success) {
+      console.log(response);
+      baseStations.value = response.baseStations;
+      baseZ.value = response.baseZ;
+      servoOrigin.value = response.servoOrigin;
+      markers.forEach(marker => {
+        marker.addEventListener('mousedown', startDrag);
+      });
+
+      function startDrag(e) {
+        const marker = e.target;
+        const isBaseStation = marker.classList.contains('base-station-marker');
+        const offsetX = e.clientX - marker.getBoundingClientRect().left;
+        const offsetY = e.clientY - marker.getBoundingClientRect().top;
+
+        function moveHandler(e) {
+          const mapRect = document.querySelector('.classroom-map').getBoundingClientRect();
+          let x = e.clientX - mapRect.left - offsetX;
+          let y = e.clientY - mapRect.top - offsetY;
+
+          // 边界检查
+          x = Math.max(0, Math.min(x, mapRect.width));
+          y = Math.max(0, Math.min(y, mapRect.height));
+
+          marker.style.left = `${x}px`;
+          marker.style.top = `${y}px`;
+
+          // 更新数据
+          if (isBaseStation) {
+            const id = marker.textContent;
+            baseStations.value[id].x = Math.round(x);
+            baseStations.value[id].y = Math.round(y);
+          } else {
+            servoOrigin.value.x = Math.round(x);
+            servoOrigin.value.y = Math.round(y);
+          }
+        }
+
+        function endDrag() {
+          document.removeEventListener('mousemove', moveHandler);
+          document.removeEventListener('mouseup', endDrag);
+        }
+
+        document.addEventListener('mousemove', moveHandler);
+        document.addEventListener('mouseup', endDrag);
+      }
+    }
+  })
+});
 </script>
 
 <style scoped>
-.classroom-management {
+.calibration-system {
   padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
-.classroom-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-  margin-top: 20px;
-}
-
-.classroom-card {
-  background: white;
-  border-radius: 8px;
-  padding: 15px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.header {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
-.room-info h3 {
-  margin-top: 0;
-  color: #333;
-}
-
-.status-active {
-  color: #67C23A;
-}
-
-.status-inactive {
-  color: #F56C6C;
-}
-
-.room-actions {
-  margin-top: auto;
+.content {
   display: flex;
-  gap: 10px;
-  padding-top: 15px;
+  gap: 30px;
 }
 
-.room-actions button {
+.input-panel {
   flex: 1;
-  padding: 8px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.room-actions button:first-child {
-  background: #E6A23C;
-  color: white;
-}
-
-.room-actions button:last-child {
-  background: #409EFF;
-  color: white;
-}
-
-dialog {
-  border: none;
-  border-radius: 8px;
+  background: #f5f5f5;
   padding: 20px;
-  width: 400px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-radius: 8px;
 }
 
-.form-group {
-  margin-bottom: 15px;
+.visualization {
+  flex: 2;
 }
 
-.form-group label {
-  display: block;
-  margin-bottom: 5px;
-  font-weight: bold;
+.classroom-map {
+  position: relative;
+  width: 800px;
+  height: 800px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  margin-top: 10px;
 }
 
-.form-group input, .form-group select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #DCDFE6;
-  border-radius: 4px;
-}
-
-.dialog-actions {
+.base-station-marker, .servo-marker {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.dialog-actions button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.dialog-actions button:first-child {
-  background: #F56C6C;
+  align-items: center;
+  justify-content: center;
   color: white;
+  font-weight: bold;
+  transform: translate(-50%, -50%);
+  cursor: move;
+  user-select: none;
 }
 
-.dialog-actions button:last-child {
-  background: #67C23A;
-  color: white;
+.base-station-marker {
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.1);
+}
+
+.servo-marker {
+  background-color: #9C27B0;
+  width: 40px;
+  height: 40px;
+}
+
+.axis {
+  position: absolute;
+  background-color: rgba(0,0,0,0.2);
+}
+
+.x-axis {
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+}
+
+.y-axis {
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
 }
 </style>

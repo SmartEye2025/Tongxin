@@ -22,117 +22,166 @@
   </div>
 </template>
 
-<script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import {classroomStore} from "@/stores/classroomStore.js";
+<script>
+import { classStore } from "@/stores/classStore.js";
+import { mapState } from 'pinia'
 
-const playerContainer = ref(null);
-const videoCanvas = ref(null);
-const isFullscreen = ref(false);
-const connectionStatus = ref('connecting');
-const img = new Image();
-
-// 原始尺寸设置
-const originalSize = {
-  width: 800,
-  height: 450
-};
-
-const statusMessages = {
-  connecting: '正在连接视频流...',
-  connected: '实时连接中',
-  disconnected: '连接已断开',
-  error: '连接错误'
-};
-
-// WebSocket 连接
-let socket = null;
-
-const initWebSocket = () => {
-  connectionStatus.value = 'connecting';
-  const canvas = videoCanvas.value;
-  const ctx = canvas.getContext('2d');
-
-  try {
-    socket = new WebSocket(`ws://localhost:8001/ws/video/`);
-
-    socket.onopen = () => {
-      connectionStatus.value = 'connected';
+export default {
+  name: "VideoPlayer",
+  data() {
+    return {
+      isFullscreen: false,
+      connectionStatus: "connecting",
+      activeBlobUrl: null, // 跟踪当前Blob URL以便释放
+      img: null, // 用于加载视频帧的Image对象
+      originalSize: {
+        width: 800,
+        height: 450,
+      },
+      statusMessages: {
+        connecting: "正在连接视频流...",
+        connected: "实时连接中",
+        disconnected: "连接已断开",
+        error: "连接错误",
+      },
+      socket: null, // WebSocket 实例
     };
+  },
+  computed: {
+      ...mapState(classStore, ['enableHotMap','enableAutoRemind','remindIntensity','remindStudentId']),
+  },
+  methods: {
+    initWebSocket() {
+      this.connectionStatus = "connecting";
+      const canvas = this.$refs.videoCanvas;
+      const ctx = canvas.getContext("2d");
+      this.img = new Image();
 
-    socket.onmessage = (event) => {
-      img.src = 'data:image/jpeg;base64,' + event.data;
-      classroomStore().setImg('data:image/jpeg;base64,' + event.data)
-      // img.onload = () => ctx.drawImage(img, 0, 0, 640, 360);
+      try {
+        this.socket = new WebSocket(`ws://192.168.1.2:8001/ws/video/`);
 
-      // 计算最佳缩放比例
-      const ratio = Math.min(
-          canvas.width / img.width,
-          canvas.height / img.height
-      );
-      const drawWidth = img.width * ratio;
-      const drawHeight = img.height * ratio;
-      const offsetX = (canvas.width - drawWidth) / 2;
-      const offsetY = (canvas.height - drawHeight) / 2;
+        this.socket.onopen = () => {
+          this.connectionStatus = "connected";
+        };
 
-      // 绘制帧
-      // ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.imageSmoothingQuality = 'high';
-      img.onload = () => ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-    };
+        this.socket.onmessage = async (event) => {
+          if (event.data instanceof Blob) {
+            // 释放之前创建的Blob URL
+            if (this.activeBlobUrl) URL.revokeObjectURL(this.activeBlobUrl);
+            this.activeBlobUrl = URL.createObjectURL(event.data);
 
-    socket.onclose = () => {
-      connectionStatus.value = 'disconnected';
-    };
+            // 使用Promise确保图像加载完成
+            await new Promise((resolve) => {
+              this.img.onload = resolve;
+              this.img.onerror = () => {
+                console.error("帧加载失败");
+                resolve();
+              };
+              this.img.src = this.activeBlobUrl;
+            });
 
-    socket.onerror = (error) => {
-      console.error('WebSocket 错误:', error);
-      connectionStatus.value = 'error';
-    };
+            // 双缓冲渲染
+            requestAnimationFrame(() => {
+              const ratio = Math.min(
+                canvas.width / this.img.width,
+                canvas.height / this.img.height
+              );
+              const drawWidth = this.img.width * ratio;
+              const drawHeight = this.img.height * ratio;
+              const offsetX = (canvas.width - drawWidth) / 2;
+              const offsetY = (canvas.height - drawHeight) / 2;
 
-  } catch (error) {
-    console.error('初始化 WebSocket 失败:', error);
-    connectionStatus.value = 'error';
-  }
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              ctx.imageSmoothingQuality = "high";
+              ctx.drawImage(this.img, offsetX, offsetY, drawWidth, drawHeight);
+            });
+          } else {
+            // 文本数据：检测结果
+            const { type, data } = JSON.parse(event.data);
+            if (type === "detection") {
+              classStore().setDetectResult(data);
+            }
+          }
+        };
+
+        this.socket.onclose = () => {
+          this.connectionStatus = "disconnected";
+        };
+
+        this.socket.onerror = (error) => {
+          console.error("WebSocket 错误:", error);
+          this.connectionStatus = "error";
+        };
+      } catch (error) {
+        console.error("初始化 WebSocket 失败:", error);
+        this.connectionStatus = "error";
+      }
+    },
+    toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        this.$refs.playerContainer
+          .requestFullscreen()
+          .then(() => {
+            this.isFullscreen = true;
+            this.$refs.videoCanvas.width = window.innerWidth;
+            this.$refs.videoCanvas.height = window.innerHeight;
+          })
+          .catch((err) => console.error("全屏错误:", err));
+      } else {
+        document
+          .exitFullscreen()
+          .then(() => {
+            this.isFullscreen = false;
+            this.$refs.videoCanvas.width = this.originalSize.width;
+            this.$refs.videoCanvas.height = this.originalSize.height;
+          })
+          .catch((err) => console.error("退出全屏错误:", err));
+      }
+    },
+  },
+  watch:{
+    // 监听变量变化
+    enableHotMap(newVal) {
+      if (this.connectionStatus === "connected"){
+        this.socket.send(JSON.stringify({
+          type: 'setting1',
+          enableHotMap: newVal,
+        }));
+      }
+    },
+    enableAutoRemind(newVal) {
+      if (this.connectionStatus === "connected"){
+        this.socket.send(JSON.stringify({
+          type: 'setting2',
+          enableAutoRemind: newVal,
+        }));
+      }
+    },
+    remindStudentId(newVal) {
+      if (this.connectionStatus === "connected"){
+        this.socket.send(JSON.stringify({
+          type: 'control',
+          remindStudentId: newVal,
+          remindIntensity: newVal,
+        }));
+      }
+    },
+  },
+  mounted() {
+    // 初始化canvas尺寸
+    this.$refs.videoCanvas.width = this.originalSize.width;
+    this.$refs.videoCanvas.height = this.originalSize.height;
+    this.initWebSocket();
+  },
+  beforeUnmount() {
+    if (this.socket) {
+      this.socket.close();
+    }
+    if (this.activeBlobUrl) {
+      URL.revokeObjectURL(this.activeBlobUrl); // 清理Blob URL
+    }
+  },
 };
-
-// 切换全屏
-const toggleFullscreen = () => {
-  if (!document.fullscreenElement) {
-    playerContainer.value.requestFullscreen()
-      .then(() => {
-        isFullscreen.value = true;
-        // 全屏时canvas尺寸自动调整
-        videoCanvas.value.width = window.innerWidth;
-        videoCanvas.value.height = window.innerHeight;
-      })
-      .catch(err => console.error('全屏错误:', err));
-  } else {
-    document.exitFullscreen()
-      .then(() => {
-        isFullscreen.value = false;
-        // 恢复原始尺寸
-        videoCanvas.value.width = originalSize.width;
-        videoCanvas.value.height = originalSize.height;
-      })
-      .catch(err => console.error('退出全屏错误:', err));
-  }
-};
-
-// 生命周期钩子
-onMounted(() => {
-  // 初始化canvas尺寸
-  videoCanvas.value.width = originalSize.width;
-  videoCanvas.value.height = originalSize.height;
-
-  initWebSocket();
-});
-
-onUnmounted(() => {
-  if (socket) {
-    socket.close();
-  }
-});
 </script>
 
 <style scoped>

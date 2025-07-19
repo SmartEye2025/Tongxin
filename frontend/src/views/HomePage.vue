@@ -7,7 +7,7 @@
         <RouterLink to="/" exact-active-class="active">首页</RouterLink>
         <RouterLink to="/realVideo" active-class="active">实时监控</RouterLink>
         <RouterLink to="/coordinate" active-class="active">坐标对齐</RouterLink>
-        <RouterLink to="/about" active-class="active">课程中心</RouterLink>
+<!--        <RouterLink to="/test" active-class="active">课程中心</RouterLink>-->
       </nav>
       <div class="user-actions">
         <button class="notification-btn">🔔</button>

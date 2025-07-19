@@ -1,80 +1,70 @@
-import { defineStore} from "pinia";
+import { defineStore } from 'pinia'
 
-export const classStore = defineStore("classStore", {
-  state(){
-    return {
-      classId: null,
-      students: ['1','2','3','4','5','6','7','8','9'],
-      behaviors: [
-        {
-          date:12,
-          stats: {
-            '站立': 4,
-            '离座': 5,
-            '跑动': 2,
-            '东张西望':11,
-            '下蹲':2
-          }
-        },
-        {
-          date:13,
-          stats: {
-            '站立': 5,
-            '离座': 2,
-            '跑动': 0,
-            '东张西望':21,
-            '下蹲':1
-          }
-        },
-        {
-          date:14,
-          stats: {
-            '站立': 7,
-            '离座': 3,
-            '跑动': 3,
-            '东张西望':32,
-            '下蹲':4
-          }
-        }
-      ],
-    }
-  },
-  getters: {
-    getBehaviorData:(state)=>(range)=> {
-      if (range==='today'){
-        return state.behaviors[0].stats
+export const classStore = defineStore('class', {
+  state: () => ({
+    students: [
+      {
+        id: 1,
+        name: '张三',
+        avatar: '',
+        status: 'normal',
+        x:0,
+        y:0,
+      },
+      {
+        id: 2,
+        name: '李四',
+        avatar: '',
+        status: 'lookAround',
+        x:0,
+        y:0,
+      },
+      {
+        id: 3,
+        name: '王五',
+        avatar: '',
+        status: 'offSeat',
+        x:0,
+        y:0,
+      },
+      {
+        id: 4,
+        name: '赵六',
+        avatar: '',
+        status: 'run',
+        x:0,
+        y:0,
+      },
+      {
+        id: 5,
+        name: '小红',
+        avatar: '',
+        status: 'sleeping',
+        x:0,
+        y:0,
       }
-      else if (range==='week'){
-        let result = {}
-        state.behaviors.slice(0,2).forEach(item => {
-          Object.keys(item.stats).forEach(key => {
-            if (!Object.prototype.hasOwnProperty.call(result, key)) {
-              result[key] = item.stats[key]
-            }
-            else{
-              result[key] += item.stats[key]
-            }
-          })
-        })
-        return result
-      }
-      else{
-        let result = {}
-        state.behaviors.forEach(item => {
-          Object.keys(item.stats).forEach(key => {
-            if (!Object.prototype.hasOwnProperty.call(result, key)) {
-              result[key] = item.stats[key]
-            }
-            else{
-              result[key] += item.stats[key]
-            }
-          })
-        })
-        return result
+    ],
+    behaviorStats: {
+      offSeat: 5,
+      stand:3,
+      run:1,
+      lookAround: 12,
+      sleeping: 3
+    },
+    enableHotMap:true,
+    enableAutoRemind: true,
+    remindStudentId:1,
+    remindIntensity:2
+  }),
+  actions: {
+    updateSetting(payload) {
+      if (payload.key in this.$state) {
+        this[payload.key] = payload.value
       }
     },
-  },
-  actions:{
-
+    setDetectResult(data) {
+      this.students[0].x = data[0].x
+      this.students[0].y = data[0].y
+    }
   }
 })

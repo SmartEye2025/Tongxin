@@ -5,13 +5,13 @@ export const studentStore = defineStore("classStore", {
   state(){
     return {
       studentList:[],
-      student_id: '',
-      uwb_id:'',
-      name:'',
-      age:0,
-      speciality:'',
-      seat_x:0,
-      seat_y:0,
+      // student_id: '',
+      // uwb_id:'',
+      // name:'',
+      // age:0,
+      // speciality:'',
+      // seat_x:0,
+      // seat_y:0,
     }
   },
   getters: {
