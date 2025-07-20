@@ -1,17 +1,27 @@
+from django.contrib.auth import login, logout
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from django.utils import timezone
 from django.http import JsonResponse
 from django.http import HttpResponse
-import json
 from camera.models import *
-from django.forms import model_to_dict
-import time
 from camera.mqtt_client import client
 from camera.consumers import frame_queue
+
+from .models import ParentStudentBinding
+from .models import Student
+from .models import User
+
 import cv2
 import base64
+import json
+import random
+import re
+import os
+from django.conf import settings
 
 #  获取学生列表
-def get_studenList(request):
+def get_student_list(request):
     if request.method == 'GET':
         studentList = []
         for a in Student.objects.all():
@@ -28,7 +38,7 @@ def get_studenList(request):
 
 @csrf_exempt
 # 编辑学生信息
-def edit_studentInfo(request):
+def edit_student_info(request):
     if request.method == 'POST':
         data = json.loads(request.body)
         student = Student.objects.get(student_id=data['student_id'])
@@ -126,7 +136,6 @@ def getH(request):
             }, status=500)
     return JsonResponse({'error': 'Expect a GET request'}, status=405)
 
-
 def get_frame(request):
     if request.method != 'GET':
         return HttpResponse('Expect a POST request', status=405)
@@ -139,7 +148,6 @@ def get_frame(request):
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-
 
 def get_calibration(request):
     if request.method == 'GET':
@@ -169,7 +177,6 @@ def get_calibration(request):
                 'error': str(e)
             }, status=500)
     return JsonResponse({'error': 'Expect a GET request'}, status=405)
-
 
 @csrf_exempt
 # 上传基站和云台坐标
@@ -203,6 +210,522 @@ def upload_calibration(request):
             }, status=400)
     return JsonResponse({'error': 'Expect a POST request'}, status=405)
 
+# 生成验证码
+def generate_verification_code():
+    return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+
+# 验证手机号格式
+def validate_phone(phone):
+    pattern = r'^1[3-9]\d{9}$'
+    return re.match(pattern, phone) is not None
+
+
+@csrf_exempt
+# 发送验证码
+def send_verification_code(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            phone = data.get('phone')
+
+            # 验证手机号
+            if not validate_phone(phone):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '手机号格式不正确'
+                }, status=400)
+
+            # 检查手机号是否已注册
+            if User.objects.filter(phone=phone).exists():
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '该手机号已注册'
+                }, status=400)
+
+            # 生成验证码
+            code = generate_verification_code()
+
+            # TODO: 实际应用中接入短信服务发送验证码
+            # 这里仅做模拟
+            print(f"验证码发送成功：{code}")
+
+            # 创建临时用户或保存验证码
+            user, created = User.objects.get_or_create(
+                phone=phone,
+                defaults={
+                    'username': phone,
+                    'verification_code': code,
+                    'verification_code_expires_at': timezone.now() + timezone.timedelta(minutes=10)
+                }
+            )
+
+            if not created:
+                user.verification_code = code
+                user.verification_code_expires_at = timezone.now() + timezone.timedelta(minutes=10)
+                user.save()
+
+            return JsonResponse({
+                'status': 'success',
+                'message': '验证码发送成功'
+            })
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+@csrf_exempt
+# 用户注册
+def register(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            phone = data.get('phone')
+            password = data.get('password')
+            nickname = data.get('nickname', '')
+
+            # 验证手机号和验证码
+            try:
+                user = User.objects.get(phone=phone)
+            except User.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '请先获取验证码'
+                }, status=400)
+
+            # 设置用户信息
+            user.set_password(password)
+            user.nickname = nickname
+            user.phone_verified = True
+            user.verification_code = None
+            user.verification_code_expires_at = None
+            user.save()
+
+            return JsonResponse({
+                'status': 'success',
+                'message': '注册成功',
+                'user': {
+                    'username': user.username,
+                    'nickname': user.nickname
+                }
+            })
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+# 主页
+def index(request):
+    return HttpResponse("_____")
+
+
+@csrf_exempt
+# 用户登录
+def user_login(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            username = data.get('username')
+            password = data.get('password')
+
+            user = User(username=username, password=password)
+
+            if user is not None:
+                login(request, user)
+                return JsonResponse({
+                    'status': 'success',
+                    'message': '登录成功',
+                    'user': {
+                        'username': user.username,
+                        'nickname': user.nickname
+                    }
+                })
+            else:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '用户名或密码错误'
+                }, status=400)
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+# 用户注销
+def user_logout(request):
+    logout(request)
+    return JsonResponse({'status': 'success', 'message': '注销成功'})
+
+
+@csrf_exempt
+# 更新用户信息
+def update_profile(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '仅支持POST请求'}, status=405)
+
+    try:
+        username = request.POST.get('username')
+        if not username:
+            return JsonResponse({'status': 'error', 'message': '必须提供username参数'}, status=400)
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': '用户不存在'}, status=404)
+
+        # 更新昵称
+        nickname = request.POST.get('nickname')
+        if nickname is not None:
+            user.nickname = nickname
+
+        # 更新头像
+        avatar_file = request.FILES.get('avatar')
+        if avatar_file:
+            user.avatar = avatar_file
+
+        user.save()
+
+        return JsonResponse({
+            'status': 'success',
+            'message': '用户信息更新成功',
+            'user': {
+                'username': user.username,
+                'nickname': user.nickname,
+                'avatar_url': request.build_absolute_uri(user.avatar.url) if user.avatar else None,
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+# 更新头像
+def update_avatar(request):
+    try:
+        username = request.POST.get('username')
+        avatar_file = request.FILES.get('avatar')
+
+        if not username or not avatar_file:
+            return JsonResponse({'code': 400, 'message': '参数缺失'})
+
+        # 获取用户信息
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'code': 404, 'message': '用户不存在'})
+
+        # 删除旧头像（如果不是默认头像）
+        if user.avatar and 'default.png' not in str(user.avatar):
+            old_avatar_path = os.path.join(settings.MEDIA_ROOT, str(user.avatar))
+            if os.path.exists(old_avatar_path):
+                os.remove(old_avatar_path)
+
+        # 保存新头像
+        user.avatar = avatar_file
+        user.save()
+
+        return JsonResponse({
+            'code': 200,
+            'message': '头像更新成功',
+            'data': {
+                'avatar_url': request.build_absolute_uri(user.avatar.url) if user.avatar else None,
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'code': 500, 'message': str(e)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+# 更新昵称
+def update_nickname(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        nickname = data.get('nickname')
+
+        if not username or not nickname:
+            return JsonResponse({'code': 400, 'message': '参数缺失'})
+
+        # 获取用户信息
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'code': 404, 'message': '用户不存在'})
+
+        user.nickname = nickname
+        user.save()
+
+        return JsonResponse({
+            'code': 200,
+            'message': '昵称更新成功',
+            'data': {
+                'nickname': nickname
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'code': 500, 'message': str(e)})
+
+
+@require_http_methods(["GET"])
+# 获取用户信息
+def get_user_info(request):
+    try:
+        username = request.GET.get('username')
+        if not username:
+            return JsonResponse({'code': 400, 'message': '参数缺失'})
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'code': 404, 'message': '用户不存在'})
+
+        avatar_url = request.build_absolute_uri(user.avatar.url) if user.avatar else ''
+
+        return JsonResponse({
+            'code': 200,
+            'data': {
+                'nickname': user.nickname,
+                'avatar_url': avatar_url
+            }
+        })
+    except Exception as e:
+        return JsonResponse({'code': 500, 'message': str(e)})
+
+
+@csrf_exempt
+# 用户绑定学生账号
+def bind_student(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            username = data.get('username')  # 使用用户名
+            student_id = data.get('student_id')
+
+            if not username or not student_id:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '缺少必要参数'
+                }, status=400)
+
+            # 获取用户对象
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '用户不存在'
+                }, status=404)
+
+            # 检查用户是否已经绑定了其他学生
+            if ParentStudentBinding.objects.filter(user=user, is_active=True).exists():
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '您已经绑定了一个孩子，一个用户只能绑定一个孩子'
+                }, status=400)
+
+            # 检查学生是否已经被其他用户绑定
+            if ParentStudentBinding.objects.filter(student_id=student_id, is_active=True).exists():
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '该学号已经被其他用户绑定'
+                }, status=400)
+
+            # 检查学生是否存在
+            try:
+                student = Student.objects.get(student_id=student_id)
+                student_name = student.name
+            except Student.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '未找到该学号对应的学生'
+                }, status=404)
+
+            # 创建绑定关系
+            existing_binding = ParentStudentBinding.objects.filter(user=user, student_id=student_id).first()
+
+            if existing_binding:
+                # 如果有之前的绑定记录，重新激活它
+                existing_binding.is_active = True
+                existing_binding.student_name = student_name  # 更新学生姓名，以防学生信息有变更
+                existing_binding.save()
+                binding = existing_binding
+            else:
+                # 如果没有之前的绑定记录，创建新的绑定关系
+                binding = ParentStudentBinding.objects.create(
+                    user=user,
+                    student_id=student_id,
+                    student_name=student_name
+                )
+
+            return JsonResponse({
+                'status': 'success',
+                'message': '绑定成功',
+                'data': {
+                    'has_binding': True,
+                    'username': user.username,
+                    'student_id': student_id,
+                    'student_name': student_name
+                }
+            })
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+@csrf_exempt
+# 解绑学生
+def unbind_student(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            username = data.get('username')
+
+            if not username:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '缺少必要参数'
+                }, status=400)
+
+            # 获取用户对象
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '用户不存在'
+                }, status=404)
+
+            # 查找并解除绑定关系
+            try:
+                binding = ParentStudentBinding.objects.get(user=user, is_active=True)
+                binding.is_active = False
+                binding.save()
+
+                return JsonResponse({
+                    'status': 'success',
+                    'message': '解除绑定成功'
+                })
+            except ParentStudentBinding.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '未找到绑定关系'
+                }, status=400)
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+@csrf_exempt
+# 获取绑定关系信息
+def get_binding_info(request):
+    if request.method == 'GET':
+        try:
+            username = request.GET.get('username')
+
+            if not username:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '缺少必要参数'
+                }, status=400)
+
+            # 获取用户对象
+            try:
+                user = User.objects.get(username=username)
+            except User.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '用户不存在'
+                }, status=404)
+
+            # 查询用户绑定的学生
+            try:
+                binding = ParentStudentBinding.objects.get(user=user, is_active=True)
+                return JsonResponse({
+                    'status': 'success',
+                    'data': {
+                        'has_binding': True,
+                        'student_id': binding.student_id,
+                        'student_name': binding.student_name,
+                        'binding_time': binding.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                })
+            except ParentStudentBinding.DoesNotExist:
+                return JsonResponse({
+                    'status': 'success',
+                    'data': {
+                        'has_binding': False
+                    }
+                })
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
+
+
+@csrf_exempt
+# 由学号获取学生信息
+def get_student_info(request):
+    """根据学号获取学生信息"""
+    if request.method == 'GET':
+        try:
+            student_id = request.GET.get('student_id')
+
+            if not student_id:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '缺少学号参数'
+                }, status=400)
+
+            try:
+                student = Student.objects.get(student_id=student_id)
+                return JsonResponse({
+                    'status': 'success',
+                    'data': {
+                        'student_id': student.student_id,
+                        'name': student.name
+                    }
+                })
+            except Student.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '未找到该学号对应的学生'
+                }, status=404)
+
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': str(e)
+            }, status=500)
+
+    return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
 
 

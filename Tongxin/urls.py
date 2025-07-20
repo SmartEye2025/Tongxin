@@ -22,8 +22,8 @@ from camera import views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("get_studentList/", views.get_studenList),
-    path('edit_studentInfo/', views.edit_studentInfo),
+    path("get_studentList/", views.get_student_list),
+    path('edit_studentInfo/', views.edit_student_info),
     path('add_student/', views.add_student),
     path('delete_student/', views.delete_student),
     path('send_mqtt/', views.send_mqtt),
@@ -32,4 +32,18 @@ urlpatterns = [
     path('get_frame/', views.get_frame),
     path('get_calibration/',views.get_calibration),
     path('upload_calibration/',views.upload_calibration),
+    path('', views.index),
+    path('index/', views.index),
+    path('login/', views.user_login),
+    path('logout/', views.user_logout),
+    path('update-profile/', views.update_profile),
+    path('update_avatar/', views.update_avatar),
+    path('update_nickname/', views.update_nickname),
+    path('get_user_info/', views.get_user_info),
+    path('bind_student/', views.bind_student),
+    path('unbind_student/', views.unbind_student),
+    path('get_binding_info/', views.get_binding_info),
+    path('get_student_info/', views.get_student_info),
+    path('logout/', views.user_logout),
+
 ]
