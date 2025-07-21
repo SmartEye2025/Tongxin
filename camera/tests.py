@@ -235,7 +235,7 @@ class OmnidirectionalGimbal:
 def main():
     client.loop_start()
     # 初始化云台（安装在教室(250,250,280)cm位置）
-    gimbal = OmnidirectionalGimbal(gimbal_pos=(250, 250, 280))
+    gimbal = OmnidirectionalGimbal(gimbal_pos=(250, 250, 280),base_z=60)
     # # 直线跟踪测试点
     # test_points = [
     #     (50, 250, 60),
@@ -259,8 +259,8 @@ def main():
         try:
             pan, tilt, hem = gimbal.point_at(test_points[idx])
             print(f"PAN={pan:.1f}°, TILT={tilt:.1f}°, {hem} hemisphere")
-            # gimbal.smooth_move(pan, tilt, hem)
-            gimbal.normal_move(pan, tilt, hem, 0.4)
+            gimbal.smooth_move(pan, tilt, hem)
+            # gimbal.normal_move(pan, tilt, hem, 0.4)
             idx = (idx+1)%len(test_points)
         except ValueError as e:
             print(f"Cannot reach: {str(e)}")

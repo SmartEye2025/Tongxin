@@ -1,5 +1,6 @@
 from HCNetSDK import *
 from PlayCtrl import *
+import time
 
 nPort = C_LONG(-1)
 
@@ -85,13 +86,19 @@ class devClass:
 
         # 设备信息, 输出参数
         struDeviceInfoV40 = NET_DVR_DEVICEINFO_V40()
-
-        self.iUserID = self.hikSDK.NET_DVR_Login_V40(byref(struLoginInfo), byref(struDeviceInfoV40))
-        if self.iUserID < 0:
-            print("Login failed, error code: %d" % self.hikSDK.NET_DVR_GetLastError())
-            self.hikSDK.NET_DVR_Cleanup()
-        else:
-            print('登录成功，设备序列号：%s' % str(struDeviceInfoV40.struDeviceV30.sSerialNumber, encoding="utf8").rstrip('\x00'))
+        # 登录设备，最多尝试登录10次
+        cnt = 10
+        while cnt:
+            self.iUserID = self.hikSDK.NET_DVR_Login_V40(byref(struLoginInfo), byref(struDeviceInfoV40))
+            if self.iUserID < 0:
+                print("登录失败，错误码: %d" % self.hikSDK.NET_DVR_GetLastError())
+                print('尝试再次登录...')
+                time.sleep(1)
+            else:
+                print('登录成功，设备序列号：%s' % str(struDeviceInfoV40.struDeviceV30.sSerialNumber, encoding="utf8").rstrip('\x00'))
+                return
+            cnt -= 1
+        self.hikSDK.NET_DVR_Cleanup()
 
     # 登出设备
     def LogoutDev(self):

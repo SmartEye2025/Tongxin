@@ -19,7 +19,7 @@ from asgiref.sync import sync_to_async
 
 
 # 共享队列（线程安全）
-frame_queue =  queue.Queue(maxsize=3)  # 限制队列长度避免内存堆积
+frame_queue =  queue.Queue(maxsize=5)  # 限制队列长度避免内存堆积
 location_queue = queue.Queue(maxsize=10)
 
 # 像素坐标到世界坐标转化
@@ -62,6 +62,8 @@ class VideoConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dev = None
+        self.funRealDataCallBack = None
+        self.funcDecCB = None
         self.ser = None
         self.model = None
         self.inference_task = None
@@ -87,8 +89,8 @@ class VideoConsumer(AsyncWebsocketConsumer):
             self.dev.LoginDev(ip=b'192.168.1.5', username=b"admin", pwd=b"SHENG666sheng")
 
             # ------ 初始化串口 ------
-            self.ser = serial.Serial('COM6', baudrate=115200, timeout=1)
-            self.serial_thread_running = True
+            # self.ser = serial.Serial('COM6', baudrate=115200, timeout=1)
+            # self.serial_thread_running = True
 
             # ------ 初始化YOLO模型 ------
             self.model = YOLO('weight/yolo11n-pose.pt')
@@ -104,12 +106,12 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 self.gimbal = OmnidirectionalGimbal((obj.ptz_x, obj.ptz_y, obj.ptz_z),obj.base_z)
 
             # ------ 初始化定向扬声器 ------
-            self.speaker = Speaker(device_name='RSK', audio='0006.mp3')
-            self.speaker.connect()
+            # self.speaker = Speaker(device_name='RSK', audio='0006.mp3')
+            # self.speaker.connect()
 
             # 启动线程
             Thread(target=self.capture_thread, daemon=True).start()
-            Thread(target=self.serial_thread, daemon=True).start()
+            # Thread(target=self.serial_thread, daemon=True).start()
 
             # 启动异步推理任务
             self.inference_task = asyncio.create_task(self.inference_loop())
@@ -172,7 +174,7 @@ class VideoConsumer(AsyncWebsocketConsumer):
         elif data.get('type') == 'setting2':
             self.enableAutoRemind = data.get('enableAutoRemind')
         elif data.get('type') == 'control':
-            await self.send_reminder(data.get('remindStudentId'),intensity=data.get('intensity'))
+            await self.send_reminder(data.get('remindStudentId'),remind_type=2,intensity=data.get('intensity'))
     # 解码回调函数
     def DecCBFun(self,nPort, pBuf, nSize, pFrameInfo, nUser, nReserved2):
         # 解码回调函数
@@ -211,14 +213,15 @@ class VideoConsumer(AsyncWebsocketConsumer):
         else:
             print(u'其他数据,长度:', dwBufSize)
 
-    # 捕获视频流线程
+    # 捕获视频流线程--海康SDK
     def capture_thread(self):
         preview_info = NET_DVR_PREVIEWINFO()
         preview_info.hPlayWnd = 0
         preview_info.lChannel = 1  # 通道号
         preview_info.dwStreamType = 0  # 主码流
         preview_info.dwLinkMode = 0  # TCP
-        preview_info.bBlocked = 1  # 阻塞取流
+        # preview_info.dwLinkMode = 1  # UDP
+        preview_info.bBlocked = 0  # 非阻塞取流
         # 设置回调函数回调获取实时流数据
         result = self.dev.hikSDK.NET_DVR_RealPlay_V40(self.dev.iUserID, byref(preview_info),
                                                  self.funRealDataCallBack,
@@ -226,6 +229,24 @@ class VideoConsumer(AsyncWebsocketConsumer):
         if result < 0:
             print('Open preview fail, error code is: %d' % self.dev.hikSDK.NET_DVR_GetLastError())
             self.dev.stopPlay()
+
+    # 捕获视频流线程--RTSP流
+    # def capture_thread(self):
+    #     # RTSP拉流（需摄像机开启RTSP服务）
+    #     rtsp_url = "rtsp://admin:SHENG666sheng@192.168.1.5:554/Streaming/Channels/101"
+    #     cap = cv2.VideoCapture(rtsp_url)
+    #     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 减少缓冲区
+    #     cap.set(cv2.CAP_PROP_FPS, 30)  # 设置预期FPS
+    #
+    #     while True:
+    #         ret, frame = cap.read()
+    #         if not ret:
+    #             break
+    #         # 非阻塞放入队列，若满则丢弃旧帧
+    #         if frame_queue.full():
+    #             frame_queue.get()
+    #         frame_queue.put(frame)
+    #     cap.release()
 
     # 读取串口数据线程
     def serial_thread(self):
@@ -255,13 +276,6 @@ class VideoConsumer(AsyncWebsocketConsumer):
 
     # 向前端发送推理结果
     async def send_result(self, frame, results):
-        # _, buffer = cv2.imencode('.jpg', frame)
-        # print('111111')
-        # self.send(text_data=json.dumps({
-        #     'frame': base64.b64encode(buffer).decode(),
-        #     'results': 1,
-        # }))
-        # asyncio.sleep(0.03)  # 控制帧率
         try:
             # 并行处理帧和结果
             loop = asyncio.get_running_loop()
@@ -286,44 +300,22 @@ class VideoConsumer(AsyncWebsocketConsumer):
             print(f"发送失败: {e}")
 
     # 发送MQTT消息提醒
-    async def send_reminder(self, student_id, intensity=1, remind_type=1):
+    async def send_reminder(self, student_id, remind_type, intensity=1):
         #  remind_type : 提醒类型，1-震动+语音，2-只震动，3-只语音
         if self.enableAutoRemind:
-            if remind_type == 1:
-                # 通过MQTT发送震动指令
-                await client.publish(
-                    f"remind/{student_id}/vibrate",
-                    payload=json.dumps({
-                        'intensity': intensity,
-                        'duration': 20000
-                    })
-                )
-                # 发送舵机旋转指令
-                if student_id in self.locations:
-                    x = self.locations[student_id]['x']
-                    y = self.locations[student_id]['y']
-                    pan, tilt, hem = self.gimbal.point_at()
-                    await self.gimbal.normal_move(pan, tilt, hem,time_sleep=0.1)
-                # 播放语音提醒
-                self.speaker.play()
-            elif remind_type == 2:
-                # 通过MQTT发送震动指令
-                await client.publish(
-                    f"remind/{student_id}/vibrate",
-                    payload=json.dumps({
-                        'intensity': intensity,
-                        'duration': 20000
-                    })
-                )
-            elif remind_type == 3:
-                # 发送舵机旋转指令
-                if student_id in self.locations:
-                    x = self.locations[student_id]['x']
-                    y = self.locations[student_id]['y']
-                    pan, tilt, hem = self.gimbal.point_at()
-                    await self.gimbal.normal_move(pan, tilt, hem, time_sleep=0.1)
-                # 播放语音提醒
-                self.speaker.play()
+            # 通过MQTT发送震动指令
+            await client.publish(
+                f"remind/{student_id}/vibrate",
+                payload="type"+str(remind_type) # 1表示自动提醒，2表示教师端控制提醒，3表示停止震动
+            )
+            # 发送舵机旋转指令
+            if student_id in self.locations:
+                x = self.locations[student_id]['x']
+                y = self.locations[student_id]['y']
+                pan, tilt, hem = self.gimbal.point_at()
+                await self.gimbal.normal_move(pan, tilt, hem,time_sleep=0.1)
+            # 播放语音提醒
+            # self.speaker.play()
 
 
     # 视频推理
@@ -340,6 +332,27 @@ class VideoConsumer(AsyncWebsocketConsumer):
                     lambda: self.model(frame, verbose=False)
                 )
                 annotated_frame = results[0].plot()
+
+                # 解析所有检测到的人的关键点信息为字典格式，并提取左腕关键点坐标（手环佩戴位置）作为学生位置坐标
+                persons_points = {}
+
+                if results[0].boxes and results[0].boxes.id is not None:
+                    track_ids = results[0].boxes.id.int().cpu().numpy()
+                    keypoints_data = results[0].keypoints.data
+                    boxes = results[0].boxes.xywh.cpu().numpy()
+
+                    # 提取每个人的关键点坐标信息
+                    for track_id, kpts, box in zip(track_ids, keypoints_data, boxes):
+                        # 将关键点数据转换为numpy格式 (17个关键点，每个点包含x, y坐标)
+                        keypoints_xy = kpts[:, :2].cpu().numpy()  # shape: (17, 2)
+
+                        # 存储到字典中，每个人的ID对应其关键点信息
+                        persons_points[track_id] = keypoints_xy[9]
+                    # YOLO关键点顺序 (COCO格式):
+                    # 0: 鼻子, 1: 左眼, 2: 右眼, 3: 左耳, 4: 右耳
+                    # 5: 左肩, 6: 右肩, 7: 左肘, 8: 右肘, 9: 左腕, 10: 右腕
+                    # 11: 左髋, 12: 右髋, 13: 左膝, 14: 右膝, 15: 左踝, 16: 右踝
+
                 # # 获取学生列表(uwb_id作为索引)
                 # students = {}
                 # for student in Student.objects.all():
@@ -387,20 +400,20 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 #         'behavior':'',
                 #     })
                 detected_results = []
-                # 异步获取帧（避免阻塞事件循环）
-                p = await sync_to_async(lambda: location_queue.get(timeout=2.0))()
-                if p and not (p[1]==p[2]==p[3]==0):
-                    # # 异步查询学生信息
-                    # student = await sync_to_async(
-                    #     lambda: Student.objects.get(uwb_id=p[0]),
-                    #     thread_sensitive=True
-                    # )()
-                    detected_results = [{
-                        'student_id': 1,
-                        'x':p[1],
-                        'y':p[2],
-                        'z':p[3],
-                    }]
+                # # 异步获取帧（避免阻塞事件循环）
+                # p = await sync_to_async(lambda: location_queue.get(timeout=2.0))()
+                # if p and not (p[1]==p[2]==p[3]==0):
+                #     # # 异步查询学生信息
+                #     # student = await sync_to_async(
+                #     #     lambda: Student.objects.get(uwb_id=p[0]),
+                #     #     thread_sensitive=True
+                #     # )()
+                #     detected_results = [{
+                #         'student_id': 1,
+                #         'x':p[1],
+                #         'y':p[2],
+                #         'z':p[3],
+                #     }]
                 if self.enableHotMap:
                     send_frame = annotated_frame
                 else:
@@ -409,7 +422,7 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 await self.send_result(send_frame,detected_results)
                 del frame,annotated_frame,results
                 # 精确帧率控制
-                await asyncio.sleep(max(0, 0.03 - (time.time() - start_time)))
+                # await asyncio.sleep(max(0, 0.03 - (time.time() - start_time)))
 
 
             except queue.Empty:

@@ -20,6 +20,8 @@ import re
 import os
 from django.conf import settings
 
+
+# ---------------------网页端------------------------
 #  获取学生列表
 def get_student_list(request):
     if request.method == 'GET':
@@ -210,6 +212,9 @@ def upload_calibration(request):
             }, status=400)
     return JsonResponse({'error': 'Expect a POST request'}, status=405)
 
+
+
+# ------------------------小程序端------------------
 # 生成验证码
 def generate_verification_code():
     return ''.join([str(random.randint(0, 9)) for _ in range(6)])
