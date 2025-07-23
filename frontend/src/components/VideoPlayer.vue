@@ -159,10 +159,10 @@ export default {
     },
     remindStudentId(newVal) {
       if (this.connectionStatus === "connected"){
+        console.log('发送提醒：',newVal);
         this.socket.send(JSON.stringify({
           type: 'control',
-          remindStudentId: newVal,
-          remindIntensity: newVal,
+          studentList: newVal.value,
         }));
       }
     },

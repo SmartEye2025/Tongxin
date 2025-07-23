@@ -45,6 +45,10 @@
       <form @submit.prevent="saveStudent">
         <div class="form-row">
           <div class="form-group">
+            <label>学号</label>
+            <input v-model="currentStudent.student_id" required>
+          </div>
+          <div class="form-group">
             <label>UWB编号</label>
             <input v-model="currentStudent.uwb_id" required>
           </div>
@@ -106,7 +110,7 @@ const filteredStudents = computed(() => {
 
 const addStudent = () => {
   currentStudent.value = {
-    student_id: Date.now(),
+    student_id: '',
     uwb_id: '',
     name: '',
     age: '',

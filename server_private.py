@@ -7,17 +7,24 @@ import numpy as np
 import threading
 import queue
 from ultralytics import YOLO
-from HikSDKHelper import *
 import json
 import torch
 import torch.nn as nn
 from collections import deque
 import time
+
+# 海康威视SDK相关导入（仅在使用网络摄像头时需要）
+HikSDKHelper = None
+try:
+    from HikSDKHelper import *
+    HikSDKHelper = True
+except ImportError:
+    print("⚠️ 海康威视SDK未安装，将只支持本地摄像头")
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 # 共享队列（线程安全）
-frame_queue = queue.Queue(maxsize=10)  # 限制队列长度避免内存堆积
+frame_queue = queue.Queue(maxsize=5)  # 限制队列长度避免内存堆积
 
 
 # result_queue = queue.Queue(maxsize=3)
@@ -77,13 +84,20 @@ funcDecCB = DECCBFUNWIN(DecCBFun)
 CONFIG = {
     # --- 文件路径 ---
     "yolo_pose_model_path": "weight/yolo11n-pose.pt",
-    "action_model_path": "weight/attention_lstm_model_best.pth",  # LSTM模型路径
+    "action_model_path": "../attention_lstm_model_best.pth",  # 使用根目录的5类模型
     "label_mapping_path": "weight/merged_label_mapping.json",  # 使用合并版标签映射
-    # 中文字体文件路径
+    # 关键：指定您的中文字体文件路径 (例如: "msyh.ttc" 或 "simhei.ttf")
     "font_path": "weight/Deng.ttf",
 
+    # --- 输入源 ---
+    # 0 代表默认摄像头, 1代表第二个摄像头, 或者填入视频文件路径
+    "video_source": 1,  # 使用本地摄像头
+    "use_local_camera": True,  # 新增：使用本地摄像头标志
+
     # --- 模型参数 (兼容新训练的合并版模型) ---
-    "sequence_length": 60,  # 与新模型训练时保持一致
+    "sequence_length": 60,  # 与训练时保持一致：60帧
+    "num_keypoints": 17,
+    "num_classes": 5,  # 更新为5类：dance, focus, handup, standup, walk
 
     # --- 行为分析阈值 (可调整以优化灵敏度) ---
     "history_length": 5,  # 用于判断重复/持续行为的短期历史长度
@@ -92,7 +106,7 @@ CONFIG = {
 }
 
 
-# --- 行为状态机 ---
+# --- 2. 核心逻辑：行为状态机 (Behavior State Machine) ---
 class BehaviorStateMachine:
     def __init__(self, track_id):
         self.track_id = track_id
@@ -100,16 +114,63 @@ class BehaviorStateMachine:
         self.alert_message = ""
         self.last_action = "等待检测..."
         self.action_history = deque(maxlen=CONFIG["history_length"])
-        self.STEREOTYPE_ACTIONS = {"dance", "curlup", "turn-head"}
-        self.INATTENTION_ACTIONS = {"dance", "turn-head"}
-        self.ELOPEMENT_ACTIONS = {"standup", "run", "walk"}
+        
+        # 根据新的5类动作更新行为规则
+        self.STEREOTYPE_ACTIONS = {"dance"}  # 刻板行为：舞蹈动作
+        self.INATTENTION_ACTIONS = {"dance"}  # 分心行为：舞蹈等
+        self.ELOPEMENT_ACTIONS = {"standup", "walk"}  # 离座行为：站立、走路
 
     def update(self, atomic_action):
         self.last_action = atomic_action
         self.action_history.append(atomic_action)
         self.alert_message = atomic_action
         print('动作：', atomic_action)
-        # self.alert_message = ""
+        
+        # 基于5类动作启用行为分析逻辑
+        # 规则 0: 检测高频刻板行为 (最高优先级)
+        stereotype_count = sum(1 for act in self.action_history if act in self.STEREOTYPE_ACTIONS)
+        if len(self.action_history) == CONFIG["history_length"] and stereotype_count >= CONFIG["stereotype_threshold"]:
+            if self.state != "STEREOTYPY": self.state = "STEREOTYPY"
+            self.alert_message = "注意: 高频刻板行为 (舞蹈)"
+            return
+
+        # 规则 1: 处理正常状态 (SITTING_CALMLY)
+        if self.state == "SITTING_CALMLY":
+            if atomic_action in self.ELOPEMENT_ACTIONS:
+                self.state = "POTENTIAL_ELOPEMENT"
+                self.alert_message = "!! 离座风险 !!"
+            elif atomic_action == "handup":
+                self.state = "HANDUP"
+                self.alert_message = "举手 (正常)"
+            else:
+                inattention_count = sum(1 for act in self.action_history if act in self.INATTENTION_ACTIONS)
+                if len(self.action_history) == CONFIG["history_length"] and inattention_count >= CONFIG["inattention_threshold"]:
+                    self.state = "INATTENTION"
+                    self.alert_message = "注意: 持续分心"
+
+        # 规则 2: 处理"举手"状态
+        elif self.state == "HANDUP":
+            if atomic_action == "focus":
+                self.state = "SITTING_CALMLY"
+            elif atomic_action in self.ELOPEMENT_ACTIONS:
+                self.state = "POTENTIAL_ELOPEMENT"
+                self.alert_message = "!! 举手后离座 !!"
+
+        # 规则 3: 处理"离座风险"状态
+        elif self.state == "POTENTIAL_ELOPEMENT":
+            if atomic_action == "focus":
+                self.state = "SITTING_CALMLY"
+            elif atomic_action == "walk":
+                self.state = "WALKING_WANDERING"
+                self.alert_message = "徘徊中..."
+
+        # 默认初始化/恢复规则
+        if self.state == "IDLE":
+            if atomic_action == "focus":
+                self.state = "SITTING_CALMLY"
+            elif atomic_action in self.ELOPEMENT_ACTIONS:
+                self.state = "WALKING_WANDERING"
+                self.alert_message = "徘徊中..."
 
         # # 规则 0: 检测高频刻板行为 (最高优先级)
         # stereotype_count = sum(1 for act in self.action_history if act in self.STEREOTYPE_ACTIONS)
@@ -117,7 +178,7 @@ class BehaviorStateMachine:
         #     if self.state != "STEREOTYPY": self.state = "STEREOTYPY"
         #     self.alert_message = "注意: 高频刻板行为"
         #     return
-        #
+
         # # 规则 1: 处理正常状态 (SITTING_CALMLY)
         # if self.state == "SITTING_CALMLY":
         #     if atomic_action in self.ELOPEMENT_ACTIONS:
@@ -132,7 +193,7 @@ class BehaviorStateMachine:
         #             "inattention_threshold"]:
         #             self.state = "INATTENTION"
         #             self.alert_message = "注意: 持续分心"
-        #
+
         # # 规则 2: 处理“举手”状态
         # elif self.state == "HANDUP":
         #     if atomic_action == "focus":
@@ -140,7 +201,7 @@ class BehaviorStateMachine:
         #     elif atomic_action in self.ELOPEMENT_ACTIONS:
         #         self.state = "POTENTIAL_ELOPEMENT"
         #         self.alert_message = "!! 举手后离座 !!"
-        #
+
         # # 规则 3: 处理“离座风险”状态
         # elif self.state == "POTENTIAL_ELOPEMENT":
         #     if atomic_action == "focus":
@@ -148,7 +209,7 @@ class BehaviorStateMachine:
         #     elif atomic_action in ["walk", "turn-head"]:
         #         self.state = "WALKING_WANDERING"
         #         self.alert_message = "徘徊中..."
-        #
+
         # # 规则 4: 处理“徘徊”状态
         # elif self.state == "WALKING_WANDERING":
         #     if atomic_action == "focus":
@@ -156,7 +217,7 @@ class BehaviorStateMachine:
         #     elif atomic_action == "run":
         #         self.state = "POTENTIAL_ELOPEMENT"
         #         self.alert_message = "!! 徘徊中加速 !!"
-        #
+
         # # 规则 5: 处理“分心”状态
         # elif self.state == "INATTENTION":
         #     if atomic_action == "focus":
@@ -164,11 +225,11 @@ class BehaviorStateMachine:
         #     elif atomic_action in self.ELOPEMENT_ACTIONS:
         #         self.state = "POTENTIAL_ELOPEMENT"
         #         self.alert_message = "!! 分心后离座 !!"
-        #
+
         # # 规则 6: 处理“刻板行为”状态
         # elif self.state == "STEREOTYPY":
         #     if atomic_action not in self.STEREOTYPE_ACTIONS: self.state = "IDLE"
-        #
+
         #     # 默认初始化/恢复规则
         # if self.state == "IDLE":
         #     if atomic_action == "focus":
@@ -177,15 +238,13 @@ class BehaviorStateMachine:
         #         self.state = "WALKING_WANDERING"
         #         self.alert_message = "徘徊中..."
 
-
     def get_display_info(self):
-        # status_text = f"ID-{self.track_id} [状态: {self.state}] 动作:{self.last_action}"
-        status_text = f"ID-{self.track_id} 动作:{self.last_action}"
+        status_text = f"ID-{self.track_id} [状态: {self.state}] 动作:{self.last_action}"
         alert_text = self.alert_message
         return status_text, alert_text
 
 
-# --- 辅助函数与类定义 ---
+# --- 3. 辅助函数与类定义 ---
 def draw_text_cn(frame, text, position, font_size, color_bgr):
     try:
         img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -303,7 +362,6 @@ class AttentionLSTM(nn.Module):
 
 def load_all_models():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cpu")
     print(f"正在使用设备进行推理: {device}")
 
     # 加载YOLO姿态检测模型
@@ -319,12 +377,14 @@ def load_all_models():
 
     try:
         checkpoint = torch.load(model_path, map_location=device)
-        action_model = AttentionLSTM()
-        # 加载权重
+        action_model = AttentionLSTM(num_classes=num_classes, use_attention=True)
         action_model.load_state_dict(checkpoint)
         action_model.eval()
+        action_model.to(device)
 
         print(f"✓ 模型加载成功: {model_path}")
+        print(f"✓ 模型类别数: {num_classes}")
+        print(f"✓ 类别映射: {idx_to_label}")
 
     except Exception as e:
         print(f"❌ 模型加载失败: {e}")
@@ -410,83 +470,199 @@ def display_thread():
     cv2.destroyAllWindows()
 
 
+def draw_cached_tracking(frame, tracked_persons):
+    """在帧上绘制缓存的跟踪信息，用于非检测帧"""
+    display_frame = frame.copy()
+    for track_id, data in tracked_persons.items():
+        if 'fsm' in data and 'center' in data:
+            status_text, alert_text = data['fsm'].get_display_info()
+            x_center, y_center = data['center']
+
+            # 绘制简单的跟踪框（模拟YOLO的框）
+            cv2.rectangle(display_frame, (x_center-50, y_center-50), 
+                         (x_center+50, y_center+50), (0, 255, 0), 2)
+            cv2.putText(display_frame, f"ID:{track_id}", 
+                       (x_center-40, y_center-60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+            # 使用中文绘制函数绘制状态信息
+            if alert_text:
+                display_frame = draw_text_cn(display_frame, alert_text,
+                                           (x_center - 70, y_center - 25),
+                                           font_size=16, color_bgr=(0, 0, 255))  # 红色
+
+            display_frame = draw_text_cn(display_frame, status_text,
+                                       (x_center - 70, y_center + 5),
+                                       font_size=14, color_bgr=(0, 255, 0))  # 绿色
+    
+    return display_frame
+
+
 def main():
     pose_model, action_model, idx_to_label, device = load_all_models()
     tracked_persons = {}
-    step = 10
-    cnt = 0
-    while True:
-        try:
-            frame = frame_queue.get(timeout=1)  # 阻塞获取
+    last_annotated_frame = None  # 缓存上一帧的检测结果
+    frame_count = 0
+    
+    # 根据配置选择视频源
+    if CONFIG["use_local_camera"]:
+        # 使用本地摄像头
+        cap = cv2.VideoCapture(CONFIG["video_source"])
+        if not cap.isOpened():
+            print(f"❌ 无法打开摄像头 {CONFIG['video_source']}")
+            return
+        
+        # 优化摄像头参数
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 20)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        print(f"✓ 成功连接本地摄像头 {CONFIG['video_source']}")
+        print(f"  分辨率: {int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+        print(f"  帧率: {cap.get(cv2.CAP_PROP_FPS)} FPS")
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("❌ 无法获取摄像头帧")
+                break
+            
+            frame_count += 1
+            
+            # 每2帧进行一次检测，而不是每3帧
+            if frame_count % 2 == 0:
+                # 进行检测和跟踪
+                last_annotated_frame = process_frame(frame, pose_model, action_model, 
+                                                   idx_to_label, device, tracked_persons)
+                display_frame = last_annotated_frame
+            else:
+                # 不进行检测，使用上一帧的结果或原始帧
+                if last_annotated_frame is not None:
+                    # 在原始帧上绘制上一帧的跟踪信息
+                    display_frame = draw_cached_tracking(frame, tracked_persons)
+                else:
+                    display_frame = frame
+            
+            cv2.imshow("瞳心守护 - 实时行为分析系统", display_frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        
+        cap.release()
+    else:
+        # 使用海康威视摄像头（原来的逻辑）
+        while True:
+            try:
+                frame = frame_queue.get(timeout=1)  # 阻塞获取
+            except queue.Empty:
+                print("等待新帧...")
+                continue
+            
+            frame_count += 1
+            
+            if frame_count % 2 == 0:
+                last_annotated_frame = process_frame(frame, pose_model, action_model, 
+                                                   idx_to_label, device, tracked_persons)
+                display_frame = last_annotated_frame
+            else:
+                if last_annotated_frame is not None:
+                    display_frame = draw_cached_tracking(frame, tracked_persons)
+                else:
+                    display_frame = frame
+            
+            cv2.imshow("瞳心守护 - 实时行为分析系统", display_frame)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-        except queue.Empty:
-            print("等待新帧...")
-            continue
-        results = pose_model.track(frame, persist=True, verbose=False)
-        annotated_frame = results[0].plot()
+    cv2.destroyAllWindows()
 
-        current_tracked_ids = []
-        if results[0].boxes and results[0].boxes.id is not None:
-            track_ids = results[0].boxes.id.int().cpu().numpy()
-            current_tracked_ids = list(track_ids)
-            keypoints_data = results[0].keypoints.data
-            boxes = results[0].boxes.xywh.cpu().numpy()
+def process_frame(frame, pose_model, action_model, idx_to_label, device, 
+                  tracked_persons):
+    """处理单帧图像的函数"""
+    # 优化YOLO参数，提高跟踪稳定性
+    results = pose_model.track(frame, persist=True, verbose=False, 
+                              conf=0.4, iou=0.7, tracker="bytetrack.yaml")
+    annotated_frame = results[0].plot()
 
-            for track_id, kpts, box in zip(track_ids, keypoints_data, boxes):
-                if track_id not in tracked_persons:
-                    tracked_persons[track_id] = {"keypoints_q": deque(maxlen=CONFIG["sequence_length"]),
-                                                 "fsm": BehaviorStateMachine(track_id), "center": (0, 0)}
+    current_tracked_ids = []
+    if results[0].boxes and results[0].boxes.id is not None:
+        track_ids = results[0].boxes.id.int().cpu().numpy()
+        current_tracked_ids = list(track_ids)
+        keypoints_data = results[0].keypoints.data
+        boxes = results[0].boxes.xywh.cpu().numpy()
 
-                tracked_persons[track_id]["keypoints_q"].append(kpts[:, :2].cpu().numpy())
-                tracked_persons[track_id]["center"] = (int(box[0]), int(box[1]))
-                # 实现窗口按步长滑动
-                cnt += 1
-                if len(tracked_persons[track_id]["keypoints_q"]) == CONFIG["sequence_length"] and cnt>=step:
-                    processed_seq = preprocess_sequence(tracked_persons[track_id]["keypoints_q"])
-                    input_tensor = torch.FloatTensor(processed_seq).unsqueeze(0).to(device)
+        for track_id, kpts, box in zip(track_ids, keypoints_data, boxes):
+            if track_id not in tracked_persons:
+                tracked_persons[track_id] = {"keypoints_q": deque(maxlen=CONFIG["sequence_length"]),
+                                             "fsm": BehaviorStateMachine(track_id), "center": (0, 0)}
 
-                    with torch.no_grad():
-                        output = action_model(input_tensor)
-                        _, pred_idx = torch.max(output, 1)
+            # 更新关键点和中心位置
+            tracked_persons[track_id]["keypoints_q"].append(kpts[:, :2].cpu().numpy())
+            tracked_persons[track_id]["center"] = (int(box[0]), int(box[1]))
+            
+            # 当序列达到足够长度时进行动作识别
+            if len(tracked_persons[track_id]["keypoints_q"]) == CONFIG["sequence_length"]:
+                processed_seq = preprocess_sequence(tracked_persons[track_id]["keypoints_q"])
+                input_tensor = torch.FloatTensor(processed_seq).unsqueeze(0).to(device)
 
-                    action_label = idx_to_label.get(pred_idx.item(), "未知")
-                    tracked_persons[track_id]["fsm"].update(action_label)
-                    cnt = 0
+                with torch.no_grad():
+                    output = action_model(input_tensor)
+                    _, pred_idx = torch.max(output, 1)
 
-        for track_id in list(tracked_persons.keys()):
-            if track_id not in current_tracked_ids:
+                action_label = idx_to_label.get(pred_idx.item(), "未知")
+                tracked_persons[track_id]["fsm"].update(action_label)
+
+    # 清理失去跟踪的对象，但保留一段时间以减少闪烁
+    for track_id in list(tracked_persons.keys()):
+        if track_id not in current_tracked_ids:
+            # 添加计数器，失去跟踪5帧后再删除
+            if "lost_count" not in tracked_persons[track_id]:
+                tracked_persons[track_id]["lost_count"] = 0
+            tracked_persons[track_id]["lost_count"] += 1
+            
+            if tracked_persons[track_id]["lost_count"] > 5:
                 del tracked_persons[track_id]
+        else:
+            # 重新找到，重置计数器
+            if "lost_count" in tracked_persons[track_id]:
+                tracked_persons[track_id]["lost_count"] = 0
 
-        # --- 可视化 ---
-        # 复制一份用于绘制中文，避免在原始图像上操作
-        display_frame = annotated_frame.copy()
-        for track_id, data in tracked_persons.items():
+    # --- 可视化 ---
+    display_frame = annotated_frame.copy()
+    for track_id, data in tracked_persons.items():
+        if 'fsm' in data and 'center' in data:
             status_text, alert_text = data['fsm'].get_display_info()
             x_center, y_center = data['center']
 
             # 使用新的中文绘制函数
             if alert_text:
                 display_frame = draw_text_cn(display_frame, alert_text,
-                                             (x_center - 70, y_center - 55),
-                                             font_size=20, color_bgr=(0, 0, 255))  # 红色
+                                           (x_center - 70, y_center - 55),
+                                           font_size=20, color_bgr=(0, 0, 255))  # 红色
 
             display_frame = draw_text_cn(display_frame, status_text,
-                                         (x_center - 70, y_center - 30),
-                                         font_size=18, color_bgr=(0, 255, 0))  # 绿色
-
-        cv2.imshow("瞳心守护 - 实时行为分析系统", display_frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cv2.destroyAllWindows()
+                                       (x_center - 70, y_center - 30),
+                                       font_size=18, color_bgr=(0, 255, 0))  # 绿色
+    
+    return display_frame
 
 
 if __name__ == "__main__":
-    # 启动线程
-    threading.Thread(target=capture_thread, daemon=True).start()
-    # threading.Thread(target=inference_thread, daemon=True).start()
-    # display_thread()
-    main()
+    # 如果使用海康威视摄像头，启动捕获线程
+    if not CONFIG["use_local_camera"]:
+        if HikSDKHelper:
+            # 启动线程
+            threading.Thread(target=capture_thread, daemon=True).start()
+            # threading.Thread(target=inference_thread, daemon=True).start()
+            # display_thread()
+            main()
+        else:
+            print("❌ 海康威视SDK未安装，无法使用网络摄像头")
+            exit(1)
+    else:
+        # 使用本地摄像头，直接开始主循环
+        main()
 
 
 

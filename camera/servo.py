@@ -46,6 +46,9 @@ class OmnidirectionalGimbal:
         self.kinematic_cache = {}
         self._precompute_kinematics()
 
+        # 当前云台正在追踪的学生的id
+        self.student_id = None
+
     def _precompute_kinematics(self):
         """预计算教室网格点的运动学参数"""
         grid_size = 100  # cm
@@ -117,34 +120,46 @@ class OmnidirectionalGimbal:
 
         return pan, tilt, hem
 
-    async def normal_move(self,target_pan, target_tilt,target_hem=None,time_sleep=0.1):
+    async def normal_move(self, student_id, target_pan, target_tilt,target_hem=None,time_sleep=0.1):
         # 正常移动，一步到位式
+        # 检查当前云台是否在追踪另一个学生
+        if self.student_id != student_id and self.student_id != None:
+            print(f"当前正在提醒其他学生：{self.student_id}")
+            return
+
         # 发送指令
-        await self._send_angles(target_pan, target_tilt)
+        self._send_angles(target_pan, target_tilt)
         # 更新状态
         self.last_pan, self.last_tilt = self.current_pan, self.current_tilt
         self.current_pan, self.current_tilt = target_pan, target_tilt
         self.hemisphere = target_hem
+        self.student_id = student_id
         time.sleep(time_sleep)
 
-    async def smooth_move(self, target_pan, target_tilt, target_hem=None, speed=None):
+    async def smooth_move(self,student_id, target_pan, target_tilt, target_hem=None, speed=None):
         """
         平滑移动到目标位置
-
         参数：
             target_pan : 目标水平角（度）
             target_tilt : 目标俯仰角（度）
             target_hem : 目标半球模式（可选）
             speed : 最大运动速度（度/秒，可选）
         """
+
         target_hem = target_hem or self.hemisphere
 
         # 半球切换时的特殊处理
         if target_hem != self.hemisphere:
             # self._transition_hemisphere(target_pan, target_tilt, target_hem, speed)
-            await self.normal_move(target_pan, target_tilt, target_hem)
+            await self.normal_move(student_id,target_pan, target_tilt, target_hem)
             return
 
+        # 检查当前云台是否在追踪另一个学生
+        if self.student_id != student_id and self.student_id != None:
+            print(f"当前正在提醒其他学生：{self.student_id}")
+            return
+
+        self.student_id = student_id
         # 正常移动
         while not self._reach_target(target_pan, target_tilt):
             # 动态速度控制
@@ -163,7 +178,7 @@ class OmnidirectionalGimbal:
             self.current_pan, self.current_tilt = new_pan, new_tilt
 
             # 发送指令
-            await self._send_angles(comp_pan, comp_tilt)
+            self._send_angles(comp_pan, comp_tilt)
             time.sleep(0.05)
 
     # def _transition_hemisphere(self, target_pan, target_tilt, target_hem, speed=None):
@@ -209,14 +224,15 @@ class OmnidirectionalGimbal:
         return (abs(self.current_pan - target_pan) < tolerance and
                 abs(self.current_tilt - target_tilt) < tolerance)
 
-    async def _send_angles(self, pan, tilt):
-        await client.publish(
-            "control/servo",
-            payload=json.dumps({
-                "panAngle": pan,
-                "tiltAngle": tilt
-            })
-        )
+    def _send_angles(self, pan, tilt):
+        if client.is_connected():
+            client.publish(
+                "control/servo",
+                payload=json.dumps({
+                    "panAngle": pan,
+                    "tiltAngle": tilt
+                })
+            )
 
     def _watchdog(self):
         """硬件保护看门狗"""

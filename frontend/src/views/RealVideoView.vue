@@ -210,7 +210,7 @@ export default {
         return this.enableHotMap
       },
       set(value) {
-        this.updateSetting({ key: 'enableHotMap', value })
+        this.updateValue({ key: 'enableHotMap', value })
       }
     },
     autoRemind: {
@@ -218,7 +218,7 @@ export default {
         return this.enableAutoRemind
       },
       set(value) {
-        this.updateSetting({ key: 'enableAutoRemind', value })
+        this.updateValue({ key: 'enableAutoRemind', value })
       }
     },
     intensity: {
@@ -226,12 +226,12 @@ export default {
         return this.remindIntensity
       },
       set(value) {
-        this.updateSetting({ key: 'remindIntensity', value })
+        this.updateValue({ key: 'remindIntensity', value })
       }
     },
   },
   methods: {
-    ...mapActions(classStore, ['updateSetting']),
+    ...mapActions(classStore, ['updateValue']),
     // 选择学生
     selectStudent(student) {
       this.currentStudent = student.id
@@ -243,7 +243,6 @@ export default {
 
     // 发送震动提醒
     sendVibration(studentId) {
-      this.updateSetting({ key: 'remindStudentId', studentId })
       const student = this.students.find(s => s.id === studentId)
       this.currentStudent = studentId
       this.currentStudentName = student.name
@@ -252,8 +251,8 @@ export default {
 
     // 确认发送提醒
     confirmRemind() {
-      this.sendReminder(this.currentStudent)
-
+      const sid = this.currentStudent
+      this.updateValue({ key: 'remindStudentId',value: { value: [sid], timestamp: Date.now() } })
       this.confirmDialog = false
       this.snackbar_message=`已向 ${this.currentStudentName} 发送提醒`
       this.show_snackbar = true
@@ -261,9 +260,7 @@ export default {
 
     // 集体提醒
     sendClassReminder() {
-      this.selectedStudents.forEach(studentId => {
-        this.sendReminder(studentId)
-      })
+      this.updateValue({ key: 'remindStudentId', value:{ value: this.selectedStudents, timestamp: Date.now() } })
       this.snackbar_message = `已向 ${this.selectedStudents.length} 名学生发送提醒`
       this.show_snackbar = true
       this.selectedStudents = []
@@ -293,38 +290,21 @@ export default {
       }
     },
   },
-  mounted() {
-    // // 模拟MQTT连接
-    // setInterval(() => {
-    //   this.mqttConnected = Math.random() > 0.1 // 90%概率显示连接正常
-    // }, 5000)
-    //
-    // // 模拟行为检测
-    // setInterval(() => {
-    //   if (this.analysisActive && this.enableAutoRemind) {
-    //     const randomStudent = this.students[
-    //       Math.floor(Math.random() * this.students.length)
-    //     ]
-    //
-    //     if (randomStudent.deviceStatus && Math.random() > 0.7) {
-    //       const behaviors = ['off_seat', 'distracted', 'sleeping']
-    //       const randomBehavior = behaviors[Math.floor(Math.random() * behaviors.length)]
-    //
-    //       randomStudent.status = randomBehavior
-    //       randomStudent.lastBehavior = {
-    //         type: randomBehavior,
-    //         time: new Date().toLocaleTimeString()
-    //       }
-    //
-    //       this.virtualBehaviorStats[randomBehavior]++
-    //
-    //       if (this.enableAutoRemind) {
-    //         this.sendReminder(randomStudent.id)
-    //       }
-    //     }
-    //   }
-    // }, 3000)
-
+  async mounted() {
+    // 初始化学生列表
+    const response = await request.get("/get_studentList/");
+    const studentList = []
+    response.studentList.forEach(student => {
+      studentList.push({
+        id: student.student_id,
+        name: student.name,
+        avatar: '',
+        status: 'normal',
+        x:0,
+        y:0,
+      })
+    })
+    this.updateValue({ key: 'students', value:studentList })
     // 初始化更新时间
     this.lastUpdateTime = new Date().toLocaleTimeString()
   },

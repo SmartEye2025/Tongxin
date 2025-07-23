@@ -10,6 +10,7 @@ class Speaker:
         self.connected = False
         self.socket = None  # 蓝牙Socket（如果需要数据传输）
         self.is_playing = False  # 播放状态跟踪
+        self.student_id = None  # 记录当前正在提醒的学生的id
 
     def connect(self):
         """连接蓝牙设备并初始化音频"""
@@ -75,20 +76,23 @@ class Speaker:
             print(f"断开连接时出错: {e}")
             self._cleanup()
 
-    def play(self):
-        """开始播放音频"""
+    def play(self,student_id, loop=False):
         if not self.connected:
-            print("请先连接设备")
+            print("请先连接音响设备")
             return
-
+        # 检查当前是否有正在提醒的学生
+        if not self.student_id and student_id!=self.student_id:
+            print(f"当前正在提醒其他学生：{self.student_id}")
+            return
         try:
             if not self.is_playing:
                 if pygame.mixer.music.get_pos() > 0:  # 有暂停位置
                     pygame.mixer.music.unpause()
                 else:  # 从头播放
-                    pygame.mixer.music.play()
+                    pygame.mixer.music.play(loops=-1 if loop else 0)  # loops=-1 表示无限循环
                 self.is_playing = True
-                print("播放中...")
+                self.student_id = student_id
+                print("播放中..." + "(循环模式)" if loop else "")
             else:
                 print("已在播放中")
 
@@ -96,16 +100,22 @@ class Speaker:
             print(f"播放失败: {e}")
             self._cleanup()
 
-    def pause(self):
+    def pause(self,student_id):
         """暂停播放"""
         if not self.connected:
             print("请先连接设备")
+            return
+
+        # 检查当前是否有正在提醒的学生
+        if not self.student_id and student_id != self.student_id:
+            print(f"当前正在提醒其他学生：{self.student_id}")
             return
 
         try:
             if self.is_playing:
                 pygame.mixer.music.pause()
                 self.is_playing = False
+                self.student_id = None
                 print("已暂停")
             else:
                 print("已处于暂停状态")
@@ -113,6 +123,20 @@ class Speaker:
         except Exception as e:
             print(f"暂停失败: {e}")
             self._cleanup()
+
+    def stop(self):
+        """完全停止播放（重置播放位置）"""
+        if not self.connected:
+            print("请先连接设备")
+            return
+
+        if self.is_playing or pygame.mixer.music.get_pos() > 0:
+            pygame.mixer.music.stop()  # 停止并重置位置
+            self.is_playing = False
+            self.student_id = None
+            print("播放已停止")
+        else:
+            print("当前没有在播放")
 
     def _cleanup(self):
         """内部方法：强制清理资源"""

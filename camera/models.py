@@ -52,7 +52,6 @@ class Classroom(models.Model):
     ptz_z = models.FloatField(verbose_name='云台z坐标', default=0)
 
 
-
 # ------------------小程序端----------------------
 def user_avatar_path(instance, filename):
     # 为上传的头像生成唯一文件名
