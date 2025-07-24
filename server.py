@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 # 共享队列（线程安全）
-frame_queue = queue.Queue(maxsize=10)  # 限制队列长度避免内存堆积
+frame_queue = queue.Queue(maxsize=5)  # 限制队列长度避免内存堆积
 
 
 # result_queue = queue.Queue(maxsize=3)
@@ -30,7 +30,9 @@ def DecCBFun(nPort, pBuf, nSize, pFrameInfo, nUser, nReserved2):
         width = pFrameInfo.contents.nWidth
         height = pFrameInfo.contents.nHeight
         YUV = np.reshape(YUV, [height + height // 2, width])
-        frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2BGR_YV12)
+        # frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2BGR_YV12)
+        frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2RGB_YV12)
+        del YUV
         # 非阻塞放入队列，若满则丢弃旧帧
         if frame_queue.full():
             frame_queue.get()
@@ -67,7 +69,7 @@ nPort = C_LONG(-1)
 # 初始化摄像机设备
 dev = devClass()
 dev.Init()
-dev.LoginDev(ip=b'192.168.1.5', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
+dev.LoginDev(ip=b'192.168.1.6', username=b"admin", pwd=b"SHENG666sheng")  # 登录设备
 # 设置回调函数
 funRealDataCallBack = REALDATACALLBACK(real_data_callback)
 funcDecCB = DECCBFUNWIN(DecCBFun)
@@ -302,8 +304,8 @@ class AttentionLSTM(nn.Module):
 
 
 def load_all_models():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # device = torch.device("cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     print(f"正在使用设备进行推理: {device}")
 
     # 加载YOLO姿态检测模型
@@ -418,12 +420,12 @@ def main():
     while True:
         try:
             frame = frame_queue.get(timeout=1)  # 阻塞获取
-
         except queue.Empty:
             print("等待新帧...")
             continue
         results = pose_model.track(frame, persist=True, verbose=False)
         annotated_frame = results[0].plot()
+        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
 
         current_tracked_ids = []
         if results[0].boxes and results[0].boxes.id is not None:
@@ -431,6 +433,7 @@ def main():
             current_tracked_ids = list(track_ids)
             keypoints_data = results[0].keypoints.data
             boxes = results[0].boxes.xywh.cpu().numpy()
+            print(keypoints_data.shape, boxes.shape)
 
             for track_id, kpts, box in zip(track_ids, keypoints_data, boxes):
                 if track_id not in tracked_persons:
@@ -458,23 +461,22 @@ def main():
                 del tracked_persons[track_id]
 
         # --- 可视化 ---
-        # 复制一份用于绘制中文，避免在原始图像上操作
-        display_frame = annotated_frame.copy()
         for track_id, data in tracked_persons.items():
             status_text, alert_text = data['fsm'].get_display_info()
             x_center, y_center = data['center']
 
             # 使用新的中文绘制函数
             if alert_text:
-                display_frame = draw_text_cn(display_frame, alert_text,
+                annotated_frame = draw_text_cn(annotated_frame, alert_text,
                                              (x_center - 70, y_center - 55),
                                              font_size=20, color_bgr=(0, 0, 255))  # 红色
 
-            display_frame = draw_text_cn(display_frame, status_text,
+            annotated_frame = draw_text_cn(annotated_frame, status_text,
                                          (x_center - 70, y_center - 30),
                                          font_size=18, color_bgr=(0, 255, 0))  # 绿色
 
-        cv2.imshow("瞳心守护 - 实时行为分析系统", display_frame)
+        cv2.imshow("瞳心守护 - 实时行为分析系统", annotated_frame)
+        del frame,annotated_frame,results
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -484,8 +486,6 @@ def main():
 if __name__ == "__main__":
     # 启动线程
     threading.Thread(target=capture_thread, daemon=True).start()
-    # threading.Thread(target=inference_thread, daemon=True).start()
-    # display_thread()
     main()
 
 

@@ -11,6 +11,7 @@ import torch.nn as nn
 from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 
+result = YOLO("sg.pt").track()
 
 class AttentionLayer(nn.Module):
     """
@@ -234,6 +235,7 @@ class Detector:
     def detect(self,frame):
         results = self.pose_model.track(frame, persist=True, verbose=False)
         annotated_frame = results[0].plot()
+        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_RGB2BGR)
         persons_points = {}
         current_tracked_ids = []
         behaviors = {}

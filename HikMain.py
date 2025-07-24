@@ -98,6 +98,7 @@ class devClass:
             self.hikSDK.NET_DVR_Logout(self.iUserID)
 
     def DecCBFun(self, nPort, pBuf, nSize, pFrameInfo, nUser, nReserved2):
+        print(pFrameInfo.contents.nType)
         # 解码回调函数
         if pFrameInfo.contents.nType == 3:
             # 解码返回视频YUV数据，将YUV数据转成jpg图片保存到本地

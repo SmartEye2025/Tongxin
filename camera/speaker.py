@@ -3,7 +3,7 @@ import pygame
 
 
 class Speaker:
-    def __init__(self, device_name='RSK', audio='0006.mp3'):
+    def __init__(self, device_name='MH-M18', audio='0006.mp3'):
         self.device = None
         self.device_name = device_name
         self.audio = audio

@@ -177,7 +177,7 @@ class VideoConsumer(AsyncWebsocketConsumer):
             width = pFrameInfo.contents.nWidth
             height = pFrameInfo.contents.nHeight
             YUV = np.reshape(YUV, [height + height // 2, width])
-            frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2BGR_YV12)
+            frame = cv2.cvtColor(YUV, cv2.COLOR_YUV2RGB_YV12)
             del YUV
             # 非阻塞放入队列，若满则丢弃旧帧
             if frame_queue.full():
@@ -503,7 +503,7 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 if self.enableHotMap:
                     send_frame = annotated_frame
                 else:
-                    send_frame = frame
+                    send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 # 发送结果
                 await self.send_result(send_frame,final_results)
                 del frame,annotated_frame
