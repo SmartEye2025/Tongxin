@@ -3,7 +3,7 @@ import pygame
 
 
 class Speaker:
-    def __init__(self, device_name='MH-M18', audio='0006.mp3'):
+    def __init__(self, device_name='MH-M18', audio='media/remind_sample.mp3'):
         self.device = None
         self.device_name = device_name
         self.audio = audio
@@ -24,7 +24,6 @@ class Speaker:
             devices = bluetooth.discover_devices(duration=5, lookup_names=True)
             if not devices:
                 raise RuntimeError("未找到任何蓝牙设备")
-
             # 2. 匹配目标设备
             self.device = next(
                 (addr for addr, name in devices if self.device_name in name),
@@ -81,17 +80,17 @@ class Speaker:
             print("请先连接音响设备")
             return
         # 检查当前是否有正在提醒的学生
-        if not self.student_id and student_id!=self.student_id:
+        if self.student_id:
             print(f"当前正在提醒其他学生：{self.student_id}")
             return
         try:
             if not self.is_playing:
-                if pygame.mixer.music.get_pos() > 0:  # 有暂停位置
-                    pygame.mixer.music.unpause()
-                else:  # 从头播放
-                    pygame.mixer.music.play(loops=-1 if loop else 0)  # loops=-1 表示无限循环
-                self.is_playing = True
-                self.student_id = student_id
+                pygame.mixer.music.play(loops=-1 if loop else 0)  # loops=-1 表示无限循环
+                if not loop:
+                    self.student_id = None
+                else:
+                    self.is_playing = True
+                    self.student_id = student_id
                 print("播放中..." + "(循环模式)" if loop else "")
             else:
                 print("已在播放中")
@@ -107,7 +106,7 @@ class Speaker:
             return
 
         # 检查当前是否有正在提醒的学生
-        if not self.student_id and student_id != self.student_id:
+        if self.student_id:
             print(f"当前正在提醒其他学生：{self.student_id}")
             return
 
@@ -157,8 +156,6 @@ class Speaker:
         """析构时自动清理"""
         self._cleanup()
 
-from camera.mqtt_client import client
-import json
 
 speaker = Speaker()
-
+speaker.connect()

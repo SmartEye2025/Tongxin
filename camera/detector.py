@@ -11,7 +11,6 @@ import torch.nn as nn
 from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 
-result = YOLO("sg.pt").track()
 
 class AttentionLayer(nn.Module):
     """
@@ -53,7 +52,7 @@ class AttentionLSTM(nn.Module):
     保持与原模型相同的接口，但内部使用Attention机制
     """
 
-    def __init__(self, input_size=68, hidden_size=128, num_layers=2, num_classes=5, dropout=0.25, use_attention=True):
+    def __init__(self, input_size=68, hidden_size=128, num_layers=2, num_classes=6, dropout=0.25, use_attention=True):
         super(AttentionLSTM, self).__init__()
 
         self.hidden_size = hidden_size
@@ -152,6 +151,7 @@ class Detector:
 
         # 加载YOLO姿态检测模型
         self.pose_model = YOLO(self.config["yolo_pose_model_path"])
+        self.pose_model.to(self.device)
 
         # 加载标签映射
         with open(self.config["label_mapping_path"], 'r', encoding='utf-8') as f:
@@ -167,6 +167,7 @@ class Detector:
             # 加载权重
             self.action_model.load_state_dict(checkpoint)
             self.action_model.eval()
+            self.action_model.to(self.device)
 
             print(f"✓ 模型加载成功: {model_path}")
 

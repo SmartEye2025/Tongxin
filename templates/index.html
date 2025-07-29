@@ -1,12 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hikvision Video Stream</title>
+    <title>海康摄像头实时监控</title>
+    <style>
+        #video-container {
+            width: 640px;
+            margin: 0 auto;
+        }
+    </style>
 </head>
 <body>
-    <h1>Hikvision Video Stream</h1>
-    <img src="{{ url_for('video_feed') }}" width="1280" height="720">
+    <div id="video-container">
+        <canvas id="videoCanvas" width="640" height="360"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+
+        // WebSocket连接
+        const socket = new WebSocket(`ws://${window.location.host}/ws/video/`);
+
+        socket.onmessage = function(e) {
+            img.src = 'data:image/jpeg;base64,' + e.data;
+            img.onload = () => ctx.drawImage(img, 0, 0, 640, 360);
+        };
+
+        // 自动重连机制
+        socket.onclose = function() {
+            setTimeout(() => window.location.reload(), 1000);
+        };
+    </script>
 </body>
 </html>

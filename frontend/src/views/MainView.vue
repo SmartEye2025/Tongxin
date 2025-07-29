@@ -30,11 +30,11 @@
         <h2>课堂数据</h2>
         <div class="stats-grid">
           <div class="stat-item">
-            <div class="stat-value">24</div>
+            <div class="stat-value">数学</div>
             <div class="stat-label">进行中课程</div>
           </div>
           <div class="stat-item">
-            <div class="stat-value">183</div>
+            <div class="stat-value">43</div>
             <div class="stat-label">学生总数</div>
           </div>
           <div class="stat-item">

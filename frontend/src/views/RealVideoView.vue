@@ -335,6 +335,7 @@ export default {
   display: flex;
   flex-direction: column;
   padding: 16px;
+  overflow-y: auto;
 }
 
 .video-wrapper {
@@ -342,7 +343,6 @@ export default {
   width: fit-content;
   background-color: #f4efef;
   border-radius: 8px;
-  overflow: hidden;
 }
 
 .control-section {
@@ -396,6 +396,7 @@ export default {
 .stats-card {
   margin-top: 16px;
   max-width: 800px;
+  overflow-y: auto;
 }
 
 .stats-card-btn{

@@ -7,7 +7,7 @@ import numpy as np
 
 
 class OmnidirectionalGimbal:
-    def __init__(self, gimbal_pos,base_z, pan_range=(0, 180), tilt_range=(0, 180)):
+    def __init__(self, gimbal_pos, base_z, pan_range=(0, 180), tilt_range=(0, 180)):
         """
         全向云台控制器
         参数：
@@ -49,30 +49,33 @@ class OmnidirectionalGimbal:
         # 当前云台正在追踪的学生的id
         self.student_id = None
 
+        # client.loop_start()
+
     def _precompute_kinematics(self):
         """预计算教室网格点的运动学参数"""
         grid_size = 100  # cm
         x_range = range(0, 1001, grid_size)
         y_range = range(0, 801, grid_size)
-        z = self.g_pos[2]-self.base_z
+        z = self.g_pos[2] - self.base_z
 
         for x in x_range:
             for y in y_range:
                 key = (x, y, z)
                 self.kinematic_cache[key] = self._calculate_angles((
-                    x-self.g_pos[0],
-                    y-self.g_pos[1],
-                    self.g_pos[2]-z,
+                    x - self.g_pos[0],
+                    y - self.g_pos[1],
+                    self.g_pos[2] - z,
                 ))
 
     def _calculate_angles(self, delta_cm):
         """核心运动学计算（相对坐标）"""
         dx, dy, dz = delta_cm
+        dx = -dx
         # 计算原始pan角度（数学坐标系：0°为正右方，调整为：0°为正左方）
         pan_raw = (math.degrees(math.atan2(dy, dx)) - 90) % 360
         # 计算原始tilt角度（数学坐标系：0°为水平，调整为：90°为正下方）
         distance_xy = math.sqrt(dx ** 2 + dy ** 2)
-        tilt_angle = 90 - math.degrees(math.atan2(distance_xy, dz))
+        tilt_angle = 90 + math.degrees(math.atan2(distance_xy, dz))
 
         # 处理水平旋转超过180°的情况
         if pan_raw > 180:
@@ -120,7 +123,7 @@ class OmnidirectionalGimbal:
 
         return pan, tilt, hem
 
-    async def normal_move(self, student_id, target_pan, target_tilt,target_hem=None,time_sleep=0.1):
+    async def normal_move(self, student_id, target_pan, target_tilt, target_hem=None, time_sleep=0.1):
         # 正常移动，一步到位式
         # 检查当前云台是否在追踪另一个学生
         if self.student_id != student_id and self.student_id != None:
@@ -136,7 +139,7 @@ class OmnidirectionalGimbal:
         self.student_id = student_id
         time.sleep(time_sleep)
 
-    async def smooth_move(self,student_id, target_pan, target_tilt, target_hem=None, speed=None):
+    async def smooth_move(self, student_id, target_pan, target_tilt, target_hem=None, speed=None):
         """
         平滑移动到目标位置
         参数：
@@ -151,7 +154,7 @@ class OmnidirectionalGimbal:
         # 半球切换时的特殊处理
         if target_hem != self.hemisphere:
             # self._transition_hemisphere(target_pan, target_tilt, target_hem, speed)
-            await self.normal_move(student_id,target_pan, target_tilt, target_hem)
+            await self.normal_move(student_id, target_pan, target_tilt, target_hem)
             return
 
         # 检查当前云台是否在追踪另一个学生

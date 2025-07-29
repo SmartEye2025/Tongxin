@@ -144,7 +144,7 @@ def get_frame(request):
     try:
         # 添加超时避免永久阻塞
         frame = frame_queue.get(timeout=2.0)  # 2秒超时
-        _, buffer = cv2.imencode('.jpg', frame)
+        _, buffer = cv2.imencode('.jpg', cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
         return JsonResponse({
             'data': base64.b64encode(buffer).decode()
         })
