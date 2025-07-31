@@ -2,8 +2,11 @@ from django.contrib.auth import login, logout
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
+from datetime import datetime, timedelta
 from django.http import JsonResponse
 from django.http import HttpResponse
+from django.db.models import Sum, Count
+from django.db.models.functions import ExtractWeekDay
 from camera.models import *
 from camera.mqtt_client import client
 from camera.consumers import frame_queue
@@ -11,6 +14,7 @@ from camera.consumers import frame_queue
 from .models import ParentStudentBinding
 from .models import Student
 from .models import User
+from .models import Behavior
 
 import cv2
 import base64
@@ -219,12 +223,10 @@ def upload_calibration(request):
 def generate_verification_code():
     return ''.join([str(random.randint(0, 9)) for _ in range(6)])
 
-
 # 验证手机号格式
 def validate_phone(phone):
     pattern = r'^1[3-9]\d{9}$'
     return re.match(pattern, phone) is not None
-
 
 @csrf_exempt
 # 发送验证码
@@ -283,7 +285,6 @@ def send_verification_code(request):
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
-
 @csrf_exempt
 # 用户注册
 def register(request):
@@ -328,11 +329,9 @@ def register(request):
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
-
 # 主页
 def index(request):
     return HttpResponse("_____")
-
 
 @csrf_exempt
 # 用户登录
@@ -367,12 +366,10 @@ def user_login(request):
             }, status=500)
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
-
 # 用户注销
 def user_logout(request):
     logout(request)
     return JsonResponse({'status': 'success', 'message': '注销成功'})
-
 
 @csrf_exempt
 # 更新用户信息
@@ -414,7 +411,6 @@ def update_profile(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 # 更新头像
@@ -452,7 +448,6 @@ def update_avatar(request):
     except Exception as e:
         return JsonResponse({'code': 500, 'message': str(e)})
 
-
 @csrf_exempt
 @require_http_methods(["POST"])
 # 更新昵称
@@ -484,7 +479,6 @@ def update_nickname(request):
     except Exception as e:
         return JsonResponse({'code': 500, 'message': str(e)})
 
-
 @require_http_methods(["GET"])
 # 获取用户信息
 def get_user_info(request):
@@ -509,7 +503,6 @@ def get_user_info(request):
         })
     except Exception as e:
         return JsonResponse({'code': 500, 'message': str(e)})
-
 
 @csrf_exempt
 # 用户绑定学生账号
@@ -595,7 +588,6 @@ def bind_student(request):
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
-
 @csrf_exempt
 # 解绑学生
 def unbind_student(request):
@@ -642,7 +634,6 @@ def unbind_student(request):
             }, status=500)
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
-
 
 @csrf_exempt
 # 获取绑定关系信息
@@ -694,7 +685,6 @@ def get_binding_info(request):
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
-
 @csrf_exempt
 # 由学号获取学生信息
 def get_student_info(request):
@@ -732,6 +722,203 @@ def get_student_info(request):
 
     return JsonResponse({'status': 'error', 'message': '无效请求'}, status=405)
 
+
+class BehaviorStatistics:
+    # 获取时间范围
+    @staticmethod
+    def get_date_range(time_range):
+        today = datetime.now().date()
+        if time_range == '本周':  # 周一到今天
+            weekday = today.weekday()  # 周一为0，周日为6
+            start_date = today - timedelta(days=weekday)    # 获取周一
+            end_date = today
+        elif time_range == '上周':
+            weekday = today.weekday()
+            start_date = today - timedelta(days=weekday + 7)    #获取上周一
+            end_date = today - timedelta(days=weekday + 1)
+        elif time_range == '本月':    # 1号到今天
+            start_date = today.replace(day=1)
+            end_date = today
+        else:
+            raise ValueError(f"不支持的时间范围: {time_range}")
+        return start_date, end_date
+
+    # 获取更先的日期，用于计算趋势
+    @staticmethod
+    def get_previous_range(time_range):
+        if time_range == '本周':
+            return '上周'
+        elif time_range == '上周':
+            today = datetime.now().date()
+            weekday = today.weekday()
+            start = today - timedelta(days=weekday + 14)
+            end = today - timedelta(days=weekday + 8)
+            return start, end
+        elif time_range == '本月':
+            first_day_current = datetime.now().date().replace(day=1)
+            last_day_prev = first_day_current - timedelta(days=1)
+            start_prev = last_day_prev.replace(day=1)
+            return start_prev, last_day_prev
+        return None
+
+    # 计算趋势
+    @staticmethod
+    def calculate_trend(current, previous):
+        if previous == 0:
+            return 0 if current == 0 else 100.0
+        return round(((current - previous) / previous) * 100, 1)
+
+    # 过滤学科
+    @staticmethod
+    def filter_by_subject(query, subject):
+        if subject and subject != '全部学科':
+            return query.filter(subject=subject)
+        return query
+
+    # 获取统计数据，用于页面最上面的统计框
+    @classmethod
+    def get_statistics(cls, time_range, subject='全部学科'):
+        # 本时间段
+        start, end = cls.get_date_range(time_range)
+
+        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
+        query = Behavior.objects.filter(
+            date__range=[start_datetime, end_datetime]
+        )###
+
+        query = cls.filter_by_subject(query, subject)
+        current_stats = query.aggregate(
+            handup_count=Sum('hand_up'),
+            leave_count=Sum('off_seat'),
+            focus_total=Sum('focus_time'),
+            record_count=Count('id')
+        )
+        current = {k: v or 0 for k, v in current_stats.items()}
+        current['focus_average'] = current['focus_total'] / current['record_count'] if current['record_count'] > 0 else 0
+
+        # 上一时间段
+        prev_range = cls.get_previous_range(time_range)
+        if isinstance(prev_range, str):
+            prev_start, prev_end = cls.get_date_range(prev_range)
+        else:
+            prev_start, prev_end = prev_range
+
+        prev_start_datetime = timezone.make_aware(datetime.combine(prev_start, datetime.min.time()))
+        prev_end_datetime = timezone.make_aware(datetime.combine(prev_end, datetime.max.time()))
+
+        prev_query = Behavior.objects.filter(
+            date__range=[prev_start_datetime, prev_end_datetime]
+        )###
+
+        prev_stats = prev_query.aggregate(
+            handup_prev=Sum('hand_up'),
+            leave_prev=Sum('off_seat'),
+            focus_prev_total=Sum('focus_time'),
+            prev_record_count=Count('id')
+        )
+        prev = {k: v or 0 for k, v in prev_stats.items()}
+        prev['focus_prev_average'] = prev['focus_prev_total'] / prev['prev_record_count'] if prev['prev_record_count'] > 0 else 0
+
+        return {
+            'focus_time': round(current['focus_average'], 1),
+            'focus_trend': cls.calculate_trend(current['focus_average'], prev['focus_prev_average']),
+            'leave_count': current['leave_count'],
+            'leave_trend': cls.calculate_trend(current['leave_count'], prev['leave_prev']),
+            'handup_count': current['handup_count'],
+            'handup_trend': cls.calculate_trend(current['handup_count'], prev['handup_prev']),
+        }
+
+    # 获取一周的每日数据，用于统计图（柱状图和折线图）
+    @classmethod
+    def get_weekly_data(cls, time_range, subject='全部学科'):
+        start, end = cls.get_date_range(time_range)
+        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
+        query = Behavior.objects.filter(
+            date__range=[start_datetime, end_datetime]
+        )
+        query = cls.filter_by_subject(query, subject)
+        records = list(query)
+        if time_range == '本月':  # 一月 按周算
+            distraction_counts = [0] * 4
+            focus_time = [0] * 4
+            for record in records:
+                week_of_month = (record.date.day - 1) // 7
+                if 0 <= week_of_month < 4:
+                    distraction_counts[week_of_month] += (record.stand_up or 0) + (record.hyperactive or 0) + (
+                                record.look_around or 0) + (record.off_seat or 0) + (record.sleeping or 0)
+                    focus_time[week_of_month] += record.focus_time or 0
+            # 将专注时间转换为五分钟
+            focus_time = [round(hours / 5, 1) for hours in focus_time]
+        else:   # 一周 按天算
+            distraction_counts = [0] * 5
+            focus_time = [0] * 5
+            for record in records:
+                weekday = record.date.weekday()  # 0-6， 周一~周日
+                distraction_counts[weekday] += (record.stand_up or 0) + (record.hyperactive or 0) + (
+                            record.look_around or 0) + (record.off_seat or 0) + (record.sleeping or 0)
+                focus_time[weekday] += record.focus_time or 0
+            focus_time = [round(hours / 5, 1) for hours in focus_time]
+
+        return {
+            'focus_time': focus_time,
+            'distraction_count': distraction_counts
+        }
+
+    # 获取各种分心次数，用于饼状图
+    @classmethod
+    def get_distraction_types(cls, time_range, subject='全部学科'):
+        start, end = cls.get_date_range(time_range)
+
+        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
+        query = Behavior.objects.filter(
+            date__range=[start_datetime, end_datetime]
+        )  ###
+
+        query = cls.filter_by_subject(query, subject)
+        type_stats = query.aggregate(
+            hyperactive=Sum('hyperactive'),
+            look_around=Sum('look_around'),
+            off_seat=Sum('off_seat'),
+            sleeping=Sum('sleeping'),
+            stand_up=Sum('stand_up')
+        )
+        return [
+            {'type': '多动', 'count': type_stats['hyperactive'] or 0},
+            {'type': '东张西望', 'count': type_stats['look_around'] or 0},
+            {'type': '离座', 'count': type_stats['off_seat'] or 0},
+            {'type': '瞌睡', 'count': type_stats['sleeping'] or 0},
+            {'type': '起立', 'count': type_stats['stand_up'] or 0}
+        ]
+
+def weekly_data(request):
+    try:
+        time_range = request.GET.get('time_range', '本周')
+        subject = request.GET.get('subject', '全部学科')
+        data = BehaviorStatistics.get_weekly_data(time_range, subject)
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+def distraction(request):
+    try:
+        time_range = request.GET.get('time_range', '本周')
+        subject = request.GET.get('subject', '全部学科')
+        data = BehaviorStatistics.get_distraction_types(time_range, subject)
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+def statistics(request):
+    try:
+        time_range = request.GET.get('time_range', '本周')
+        subject = request.GET.get('subject', '全部学科')
+        data = BehaviorStatistics.get_statistics(time_range, subject)
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
 
 
 # daphne Tongxin.asgi:application --port 8001

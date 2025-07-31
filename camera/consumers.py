@@ -350,4 +350,3 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 print(f"推理失败: {e}")
                 await self.close()
                 break
-

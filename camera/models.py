@@ -22,18 +22,19 @@ class Student(models.Model):
 # 行为统计表
 class Behavior(models.Model):
     object = Manager
-    date = models.DateTimeField(auto_now_add=True)
+    date = models.DateTimeField(auto_now_add=False, editable=True)
+    subject = models.CharField(max_length=100, verbose_name="学科",default="语文")
 
-    walk = models.IntegerField(verbose_name="走动",default=0)
-    run = models.IntegerField(verbose_name="跑动",default=0)
-    lookAround = models.IntegerField(verbose_name="东张西望", default=0)
-    offSeat = models.IntegerField(verbose_name="离座", default=0)
+    hand_up = models.IntegerField(verbose_name="举手", default=0)
+    focus_time = models.FloatField(verbose_name="专注时长(分钟)",default=0)
+    hyperactive = models.IntegerField(verbose_name="多动",default=0)
+    look_around = models.IntegerField(verbose_name="东张西望", default=0)
+    off_seat = models.IntegerField(verbose_name="离座", default=0)
     sleeping = models.IntegerField(verbose_name="瞌睡", default=0)
-    handup = models.IntegerField(verbose_name="举手", default=0)
-    standup = models.IntegerField(verbose_name="起立", default=0)
+    stand_up = models.IntegerField(verbose_name="起立", default=0)
 
     def __str__(self):
-        return self.date
+        return self.date.strftime("%Y-%m-%d %H:%M:%S")
 
 # 教室
 class Classroom(models.Model):
@@ -72,7 +73,7 @@ class User(models.Model):
     )
 
     def __str__(self):
-        return self.username
+        return self.nickname
 
     @property
     def avatar_url(self):
@@ -89,5 +90,4 @@ class ParentStudentBinding(models.Model):
     is_active = models.BooleanField(default=True, verbose_name='是否有效')
 
     def __str__(self):
-        return f"{self.user.username} -> {self.student_id}"
-
+        return f"{self.user.nickname} -> {self.student_id}"
