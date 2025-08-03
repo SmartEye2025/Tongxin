@@ -47,7 +47,8 @@ class Camera:
             del YUV
             # 非阻塞放入队列，若满则丢弃旧帧
             if frame_queue.full():
-                frame_queue.get_nowait()  # 快速丢弃旧帧
+                old_frame = frame_queue.get_nowait()  # 快速丢弃旧帧
+                del old_frame
             frame_queue.put(frame)
 
     # 码流回调函数

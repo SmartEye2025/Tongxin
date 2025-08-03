@@ -16,7 +16,8 @@ export default defineConfig({
     },
   },
   server: {
-    host: '192.168.1.2',
+    // host: '192.168.1.2',
+    host: 'localhost',
     port: 8002,      // 指定端口
     strictPort: true, // 如果端口被占用，直接退出（而不是尝试下一个端口）
   }
