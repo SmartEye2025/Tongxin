@@ -45,5 +45,7 @@ urlpatterns = [
     path('get_binding_info/', views.get_binding_info),
     path('get_student_info/', views.get_student_info),
     path('logout/', views.user_logout),
-
+    path('statistics/', views.statistics),
+    path('weekly_data/', views.weekly_data),
+    path('distraction_types/', views.distraction),
 ]
