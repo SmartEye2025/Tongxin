@@ -20,5 +20,10 @@ export default defineConfig({
     host: 'localhost',
     port: 8002,      // 指定端口
     strictPort: true, // 如果端口被占用，直接退出（而不是尝试下一个端口）
+  },
+  base: './',
+  build: {
+    assetsDir: 'assets',
+    assetsPublicPath: './'
   }
 })

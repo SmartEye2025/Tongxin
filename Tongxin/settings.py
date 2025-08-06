@@ -109,7 +109,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'tongxin_db',
         'USER': 'root',
-        'PASSWORD': 'bag200509', # bag200509
+        'PASSWORD': 'bag200509',
         'HOST': 'localhost',
         'PORT': '3306',
         'OPTIONS': {

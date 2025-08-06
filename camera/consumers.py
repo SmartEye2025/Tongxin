@@ -14,24 +14,24 @@ from sklearn.neighbors import KDTree
 from asgiref.sync import sync_to_async
 
 
-result_queue =  queue.Queue(maxsize=5)
+# result_queue =  queue.Queue(maxsize=5)
 
 
 class VideoConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # # ----------行为识别检测器参数----------
-        # self.detector = Detector(
-        #     yolo_path="weight/yolo11n-pose.pt",
-        #     lstm_path="weight/attention_lstm_model_best.pth",
-        #     label_mapping_path="weight/merged_label_mapping.json",
-        #     font_path="weight/Deng.ttf",
-        #     sequence_length=60,
-        #     step=10,
-        #     num_classes=6,
-        #     # device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        #     device=torch.device("cpu")
-        # )
+        # ----------行为识别检测器参数----------
+        self.detector = Detector(
+            yolo_path="weight/yolo11n-pose.pt",
+            lstm_path="weight/attention_lstm_model_best.pth",
+            label_mapping_path="weight/merged_label_mapping.json",
+            font_path="weight/Deng.ttf",
+            sequence_length=60,
+            step=10,
+            num_classes=6,
+            # device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            device=torch.device("cpu")
+        )
         self.inference_task = None
 
         self.gimbal = None  #  舵机云台
@@ -58,7 +58,7 @@ class VideoConsumer(AsyncWebsocketConsumer):
 
         try:
             # ------ 初始化行为识别模型 ------
-            # self.detector.load_all_models()
+            self.detector.load_all_models()
 
             # ------ 初始化舵机控制器 ------
             # 异步获取云台坐标点
@@ -294,56 +294,56 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 start_time = time.time()
                 # 异步获取帧（避免阻塞事件循环）
                 frame = await sync_to_async(lambda: frame_queue.get(timeout=1.0))()
-                result = await sync_to_async(lambda: result_queue.get(timeout=1.0))()
-                # loop = asyncio.get_running_loop()
-                # annotated_frame,persons_points,behaviors = await loop.run_in_executor(
-                #     None,
-                #     lambda: self.detector.detect(frame)
-                # )
-                # # 异步获取坐标变换矩阵
-                # classObj = await sync_to_async(
-                #     lambda: Classroom.objects.last(),
-                #     thread_sensitive=True
-                # )()
-                # H = classObj.matrix['data']
-                # # 像素坐标到物理坐标转化
-                # persons_points = {k:self.pixel_to_world(H,v[0],v[1]) for k,v in persons_points.items()}
-                #
-                # # 生成uwb_id-student_id的键值对映射
-                # uid2sid = {}
-                # for k,v in self.student_status.items():
-                #     uid2sid[v['uwb_id']] = k
-                # # 获取定位系统返回的坐标,检查10条数据
-                # actual_points = {}
-                # for i in range(1):
-                #     # 异步获取帧（避免阻塞事件循环）
-                #     p = await sync_to_async(lambda: location_queue.get(timeout=2.0))()
-                #     # 确保是有效坐标点
-                #     if p and not (p[1]==p[2]==p[3]==0):
-                #         # 根据uwb_id求绑定的student_id
-                #         student_id = uid2sid[str(p[0])]
-                #         actual_points[student_id] = (p[1],p[2])
-                #     if len(actual_points)>=len(uid2sid):
-                #         break
-                # # 坐标匹配
-                # matched_res = self.match_points(persons_points, actual_points)
-                # print('坐标匹配结果',matched_res)
-                # # 更新学生状态
-                # for student_id,track_id in matched_res.items():
-                #     # 若与当前坐标差距过大，则视为定位异常，保留原来坐标
-                #     coord = (self.student_status[student_id]['x'], self.student_status[student_id]['y'])
-                #     x = actual_points[student_id][0]
-                #     y = actual_points[student_id][1]
-                #     if coord == (0, 0) or (coord != (0, 0) and abs(coord[0] - x) + abs(coord[1] - y) < 500):
-                #         self.student_status[student_id]['x'] = x
-                #         self.student_status[student_id]['y'] = y
-                #     self.student_status[student_id]['behavior'] = behaviors[track_id]
-                # # 根据手环姿态感知和离座距离进一步优化检测结果，并做出决策，发送震动和扬声提醒
-                # final_results = await self.decide()
-                # if self.enableHotMap:
-                #     send_frame = annotated_frame
-                # else:
-                #     send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                # result = await sync_to_async(lambda: result_queue.get(timeout=1.0))()
+                loop = asyncio.get_running_loop()
+                annotated_frame,persons_points,behaviors = await loop.run_in_executor(
+                    None,
+                    lambda: self.detector.detect(frame)
+                )
+                # 异步获取坐标变换矩阵
+                classObj = await sync_to_async(
+                    lambda: Classroom.objects.last(),
+                    thread_sensitive=True
+                )()
+                H = classObj.matrix['data']
+                # 像素坐标到物理坐标转化
+                persons_points = {k:self.pixel_to_world(H,v[0],v[1]) for k,v in persons_points.items()}
+
+                # 生成uwb_id-student_id的键值对映射
+                uid2sid = {}
+                for k,v in self.student_status.items():
+                    uid2sid[v['uwb_id']] = k
+                # 获取定位系统返回的坐标,检查10条数据
+                actual_points = {}
+                for i in range(1):
+                    # 异步获取帧（避免阻塞事件循环）
+                    p = await sync_to_async(lambda: location_queue.get(timeout=2.0))()
+                    # 确保是有效坐标点
+                    if p and not (p[1]==p[2]==p[3]==0):
+                        # 根据uwb_id求绑定的student_id
+                        student_id = uid2sid[str(p[0])]
+                        actual_points[student_id] = (p[1],p[2])
+                    if len(actual_points)>=len(uid2sid):
+                        break
+                # 坐标匹配
+                matched_res = self.match_points(persons_points, actual_points)
+                print('坐标匹配结果',matched_res)
+                # 更新学生状态
+                for student_id,track_id in matched_res.items():
+                    # 若与当前坐标差距过大，则视为定位异常，保留原来坐标
+                    coord = (self.student_status[student_id]['x'], self.student_status[student_id]['y'])
+                    x = actual_points[student_id][0]
+                    y = actual_points[student_id][1]
+                    if coord == (0, 0) or (coord != (0, 0) and abs(coord[0] - x) + abs(coord[1] - y) < 500):
+                        self.student_status[student_id]['x'] = x
+                        self.student_status[student_id]['y'] = y
+                    self.student_status[student_id]['behavior'] = behaviors[track_id]
+                # 根据手环姿态感知和离座距离进一步优化检测结果，并做出决策，发送震动和扬声提醒
+                final_results = await self.decide()
+                if self.enableHotMap:
+                    send_frame = annotated_frame
+                else:
+                    send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 final_results = {'1':{
                     'x': 234,
@@ -352,8 +352,8 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 }}
                 # 发送结果
                 await self.send_result(send_frame,final_results)
-                # del frame,annotated_frame
-                del frame
+                del frame,annotated_frame
+                # del frame
                 # 精确帧率控制
                 await asyncio.sleep(max(0, 0.03 - (time.time() - start_time)))
 
