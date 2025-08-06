@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from django.http import JsonResponse
 from django.http import HttpResponse
 from django.db.models import Sum, Count
-from django.db.models.functions import ExtractWeekDay
 from camera.models import *
 from camera.mqtt_client import client
 from camera.consumers import frame_queue
@@ -333,6 +332,8 @@ def register(request):
 def index(request):
     return HttpResponse("_____")
 
+from django.contrib.auth import authenticate  # 导入authenticate
+
 @csrf_exempt
 # 用户登录
 def user_login(request):
@@ -342,7 +343,8 @@ def user_login(request):
             username = data.get('username')
             password = data.get('password')
 
-            user = User(username=username, password=password)
+            # 正确验证用户：查询数据库并校验密码
+            user = authenticate(username=username, password=password)
 
             if user is not None:
                 login(request, user)
@@ -775,19 +777,30 @@ class BehaviorStatistics:
             return query.filter(subject=subject)
         return query
 
-    # 获取统计数据，用于页面最上面的统计框
     @classmethod
-    def get_statistics(cls, time_range, subject='全部学科'):
-        # 本时间段
+    def filter_by_time_range(cls, query, time_range):
         start, end = cls.get_date_range(time_range)
-
         start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
         end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )###
+        return query.filter(date__range=[start_datetime, end_datetime])
 
-        query = cls.filter_by_subject(query, subject)
+    @classmethod
+    def get_bound_student(cls, username):
+        try:
+            user = User.objects.get(username=username)
+            binding = ParentStudentBinding.objects.get(user=user, is_active=True)
+            return binding.student_id
+        except (User.DoesNotExist, ParentStudentBinding.DoesNotExist):
+            return None
+
+    # 获取统计数据，用于页面最上面的统计框
+    @classmethod
+    def get_statistics(cls, time_range, subject='全部学科', username=None):
+        student_id = cls.get_bound_student(username)
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range) # 时间筛选
+        query = cls.filter_by_subject(query, subject)   # 学科筛选
+
         current_stats = query.aggregate(
             handup_count=Sum('hand_up'),
             leave_count=Sum('off_seat'),
@@ -803,14 +816,11 @@ class BehaviorStatistics:
             prev_start, prev_end = cls.get_date_range(prev_range)
         else:
             prev_start, prev_end = prev_range
-
         prev_start_datetime = timezone.make_aware(datetime.combine(prev_start, datetime.min.time()))
         prev_end_datetime = timezone.make_aware(datetime.combine(prev_end, datetime.max.time()))
-
         prev_query = Behavior.objects.filter(
             date__range=[prev_start_datetime, prev_end_datetime]
         )###
-
         prev_stats = prev_query.aggregate(
             handup_prev=Sum('hand_up'),
             leave_prev=Sum('off_seat'),
@@ -831,14 +841,12 @@ class BehaviorStatistics:
 
     # 获取一周的每日数据，用于统计图（柱状图和折线图）
     @classmethod
-    def get_weekly_data(cls, time_range, subject='全部学科'):
-        start, end = cls.get_date_range(time_range)
-        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
-        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )
-        query = cls.filter_by_subject(query, subject)
+    def get_weekly_data(cls, time_range, subject='全部学科', username=None):
+        student_id = cls.get_bound_student(username)
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range)  # 时间筛选
+        query = cls.filter_by_subject(query, subject)  # 学科筛选
+
         records = list(query)
         if time_range == '本月':  # 一月 按周算
             distraction_counts = [0] * 4
@@ -868,16 +876,12 @@ class BehaviorStatistics:
 
     # 获取各种分心次数，用于饼状图
     @classmethod
-    def get_distraction_types(cls, time_range, subject='全部学科'):
-        start, end = cls.get_date_range(time_range)
+    def get_distraction_types(cls, time_range, subject='全部学科', username=None):
+        student_id = cls.get_bound_student(username)
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range)  # 时间筛选
+        query = cls.filter_by_subject(query, subject)  # 学科筛选
 
-        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
-        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )  ###
-
-        query = cls.filter_by_subject(query, subject)
         type_stats = query.aggregate(
             hyperactive=Sum('hyperactive'),
             look_around=Sum('look_around'),
@@ -897,7 +901,8 @@ def weekly_data(request):
     try:
         time_range = request.GET.get('time_range', '本周')
         subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_weekly_data(time_range, subject)
+        username = request.GET.get('username', '用户名')
+        data = BehaviorStatistics.get_weekly_data(time_range, subject, username)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
@@ -906,7 +911,8 @@ def distraction(request):
     try:
         time_range = request.GET.get('time_range', '本周')
         subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_distraction_types(time_range, subject)
+        username = request.GET.get('username', '用户名')
+        data = BehaviorStatistics.get_distraction_types(time_range, subject, username)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
@@ -915,7 +921,8 @@ def statistics(request):
     try:
         time_range = request.GET.get('time_range', '本周')
         subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_statistics(time_range, subject)
+        username = request.GET.get('username', '用户名')
+        data = BehaviorStatistics.get_statistics(time_range, subject, username)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})

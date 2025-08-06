@@ -1,3 +1,5 @@
+from django.contrib.auth.hashers import make_password
+from django.utils.translation import gettext_lazy as _
 from django.db import models
 from django.db.models import Manager
 from django.contrib.auth.models import AbstractUser
@@ -17,13 +19,14 @@ class Student(models.Model):
     seat_y = models.FloatField(default=0., verbose_name="座位纵坐标")
 
     def __str__(self):
-        return self.student_id
+        return f"{self.name} 学号：{self.student_id}"
 
 # 行为统计表
 class Behavior(models.Model):
     object = Manager
     date = models.DateTimeField(auto_now_add=False, editable=True)
     subject = models.CharField(max_length=100, verbose_name="学科",default="语文")
+    student = models.ForeignKey(Student,on_delete=models.CASCADE,verbose_name="学生",default=None)
 
     hand_up = models.IntegerField(verbose_name="举手", default=0)
     focus_time = models.FloatField(verbose_name="专注时长(分钟)",default=0)
@@ -61,19 +64,19 @@ def user_avatar_path(instance, filename):
     return os.path.join('avatars', filename)
 
 # 用户模型
-class User(models.Model):
-    object = Manager
+class User(AbstractUser):
+    # 扩展用户模型
     nickname = models.CharField(max_length=50, blank=True, null=True, verbose_name='昵称')
-    avatar = models.ImageField(
-        upload_to=user_avatar_path,
-        blank=True,
-        null=True,
-        verbose_name='头像',
-        default='avatars/default.png'  # 默认头像
-    )
+    username = models.CharField(max_length=150,unique=True,default="user",verbose_name="用户名")
+    password = models.CharField(_('password'),max_length=128,default=make_password('temporary_password'))
+    avatar = models.ImageField(upload_to=user_avatar_path,blank=True,null=True,verbose_name='头像',default='avatars/default.png')
+
+    class Meta:
+        verbose_name = '用户'
+        verbose_name_plural = '用户管理'
 
     def __str__(self):
-        return self.nickname
+        return f"{self.username} 昵称：{self.nickname}"
 
     @property
     def avatar_url(self):
