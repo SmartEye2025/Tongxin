@@ -7,16 +7,20 @@
       <div class="filter-group">
         <label>时间范围:</label>
         <select v-model="selectedRange">
-          <option v-for="item in availableRanges" :key="item.value" :value="item.value">{{item.label}}</option>
+          <option v-for="item in availableRanges" :key="item" :value="item">{{item}}</option>
         </select>
       </div>
-      <div class="filter-group" v-if="selectedRange === 'custom'">
+      <div class="filter-group" v-if="selectedRange === '自定义'">
         <label>开始日期:</label>
         <input type="date" v-model="startDate">
         <label>结束日期:</label>
         <input type="date" v-model="endDate">
       </div>
-
+      <div class="filter-group">
+        <label>学生学号:</label>
+        <input type="text" v-model="selectedId" style="max-width: 100px;"/>
+      </div>
+      <span style="color: #999; font-size: 14px">输入“-1”表示查询所有学生</span>
       <button @click="applyFilters" class="apply-btn">应用筛选</button>
     </div>
 
@@ -67,8 +71,8 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(student, index) in rankedStudents" :key="student.student_id">
-            <td>{{ index + 1 }}</td>
+          <tr v-for="student in rankedStudents" :key="student.student_id">
+            <td>{{ student.student_id }}</td>
             <td>{{ student.name }}</td>
             <td>{{ student.leaveTimes }}</td>
             <td>{{ student.focusTime }}分钟</td>
@@ -87,15 +91,17 @@
 <script>
 import BehaviorChart from "@/components/BehaviorChart.vue";
 import FocusChart from "@/components/FocusChart.vue";
-import { timeRangeStore } from '@/stores/timeRangeStore';
-import { mapState, mapActions } from 'pinia';
+import { analyseStore } from '@/stores/analyseStore.js';
+import { mapState } from 'pinia';
+import request from "@/utils/request.js";
 
 export default {
   data(){
     return {
-      selectedRange: 'week',
+      selectedRange: '',
       startDate:'',
       endDate:'',
+      selectedId:'',
       stats:{
         avgFocusTime: 32,
         focusChange: 5.2,
@@ -105,27 +111,55 @@ export default {
         successChange: 2.4
       },
       rankedStudents:[
-        { id: 'S1001', name: '小明', leaveTimes: 0, focusTime: 45, progress: 8.2 },
-        { id: 'S1002', name: '小红', leaveTimes: 0, focusTime: 38, progress: 5.6 },
-        { id: 'S1003', name: '小华', leaveTimes: 2, focusTime: 35, progress: 12.1 },
-        { id: 'S1004', name: '小丽', leaveTimes: 0, focusTime: 32, progress: -2.3 },
-        { id: 'S1005', name: '小强', leaveTimes: 1, focusTime: 28, progress: 3.7 }
+        { student_id: '1', name: '小明', leaveTimes: 0, focusTime: 45, progress: 8.2 },
+        { student_id: '2', name: '小红', leaveTimes: 0, focusTime: 38, progress: 5.6 },
+
       ]
     }
   },
   methods:{
-    ...mapActions(timeRangeStore, ['setRange']),
-    applyFilters() {
-      timeRangeStore().range = this.selectedRange;
-      // 模拟数据更新
-      this.stats = {
-        avgFocusTime: Math.floor(Math.random() * 20) + 25,
-        focusChange: (Math.random() * 10 - 2).toFixed(1),
-        leaveSeatCount: Math.floor(Math.random() * 15) + 5,
-        leaveChange: (Math.random() * 8 - 4).toFixed(1),
-        interventionSuccessRate: Math.floor(Math.random() * 20) + 75,
-        successChange: (Math.random() * 5).toFixed(1)
-      };
+    async applyFilters() {
+      if (this.selectedRange === '自定义') {
+        analyseStore().range = this.startDate+'|'+this.endDate;
+      }
+      else analyseStore().range = this.selectedRange;
+      analyseStore().selectedId = this.selectedId;
+      // 更新数据
+      const response = await request.get("/statistics/", {
+        params: {
+          time_range: analyseStore().range,
+          class_id: '001',
+          student_id: this.selectedId!=='-1' ? this.selectedId : null
+        }
+      });
+      console.log('111',response);
+      if (response.data) {
+        this.stats = {
+          avgFocusTime: response.data.focus_time,
+          focusChange: response.data.focus_trend,
+          leaveSeatCount: response.data.leave_count,
+          leaveChange: response.data.leave_trend,
+          interventionSuccessRate: response.data.handup_count,
+          successChange: response.data.handup_trend
+        };
+      }
+      const response1 = await request.get("/get_rank/", {
+        params: {
+          time_range: analyseStore().range,
+          class_id: '001',
+        }
+      });
+      console.log('444',response1);
+      this.rankedStudents = response1.data;
+      // // 模拟数据更新
+      // this.stats = {
+      //   avgFocusTime: Math.floor(Math.random() * 20) + 25,
+      //   focusChange: (Math.random() * 10 - 2).toFixed(1),
+      //   leaveSeatCount: Math.floor(Math.random() * 15) + 5,
+      //   leaveChange: (Math.random() * 8 - 4).toFixed(1),
+      //   interventionSuccessRate: Math.floor(Math.random() * 20) + 75,
+      //   successChange: (Math.random() * 5).toFixed(1)
+      // };
     },
   },
   components:{
@@ -133,10 +167,12 @@ export default {
     BehaviorChart
   },
   computed: {
-    ...mapState(timeRangeStore, ['availableRanges']),
+    ...mapState(analyseStore, ['availableRanges']),
   },
-  mounted() {
-    this.selectedRange = timeRangeStore().range;
+  async mounted() {
+    this.selectedRange = analyseStore().range;
+    this.selectedId = analyseStore().selectedId;
+    await this.applyFilters();
   },
 }
 </script>

@@ -48,4 +48,5 @@ urlpatterns = [
     path('statistics/', views.statistics),
     path('weekly_data/', views.weekly_data),
     path('distraction_types/', views.distraction),
+    path('get_rank/', views.get_rank),
 ]

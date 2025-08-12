@@ -7,15 +7,13 @@ export const studentStore = defineStore("classStore", {
       studentList:[],
       // student_id: '',
       // uwb_id:'',
+      // class_id:'',
       // name:'',
       // age:0,
       // speciality:'',
       // seat_x:0,
       // seat_y:0,
     }
-  },
-  getters: {
-
   },
   actions:{
     async fetch_studentList(){
@@ -32,11 +30,14 @@ export const studentStore = defineStore("classStore", {
     },
     async edit_studentInfo(studentInfo){
       try {
-        this.studentList = this.studentList.map(element =>
-          element.student_id === studentInfo.student_id
-            ? { ...element, ...studentInfo } // 合并属性（保留未修改的字段）
-            : element
-        );
+        // this.studentList = this.studentList.map(element =>
+        //   element.student_id === studentInfo.student_id
+        //     ? { ...element, ...studentInfo } // 合并属性（保留未修改的字段）
+        //     : element
+        // );
+        const index = this.studentList.findIndex(s => s.student_id === studentInfo.student_id);
+        this.studentList[index] = { ...studentInfo };
+        console.log(this.studentList)
         await request.post("/edit_studentInfo/",studentInfo);
       } catch (err) {
         console.log('error:',err.message);

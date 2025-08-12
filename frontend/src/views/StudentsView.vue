@@ -15,8 +15,10 @@
           <tr>
             <th>学号</th>
             <th>UWB定位编号</th>
+            <th>班级</th>
             <th>姓名</th>
             <th>年龄</th>
+            <th>座位</th>
             <th>特殊需求</th>
             <th>操作</th>
           </tr>
@@ -25,8 +27,10 @@
           <tr v-for="student in filteredStudents" :key="student.id">
             <td>{{ student.student_id }}</td>
             <td>{{ student.uwb_id }}</td>
+            <td>{{ student.class_id }}</td>
             <td>{{ student.name }}</td>
             <td>{{ student.age }}</td>
+            <td>[{{ student.seat_x }},{{student.seat_y}}]</td>
             <td>
               <span class="special-needs">{{ student.specialNeeds.join(', ') }}</span>
             </td>
@@ -53,12 +57,24 @@
             <input v-model="currentStudent.uwb_id" required>
           </div>
           <div class="form-group">
+            <label>班级</label>
+            <input v-model="currentStudent.class_id" required>
+          </div>
+          <div class="form-group">
             <label>姓名</label>
             <input v-model="currentStudent.name" required>
           </div>
           <div class="form-group">
             <label>年龄</label>
-            <input v-model="currentStudent.age" type="number" required>
+            <input v-model="currentStudent.age" type="number">
+          </div>
+          <div class="form-group">
+            <label>座位x坐标</label>
+            <input v-model="currentStudent.seat_x" type="number">
+          </div>
+          <div class="form-group">
+            <label>座位y坐标</label>
+            <input v-model="currentStudent.seat_y" type="number">
           </div>
         </div>
 
@@ -95,8 +111,11 @@ const editingStudent = ref(false);
 const currentStudent = ref({
   student_id: '',
   uwb_id: '',
+  class_id:'',
   name: '',
   age: '',
+  seat_x: '',
+  seat_y: '',
   specialNeeds: [],
 });
 
@@ -112,8 +131,11 @@ const addStudent = () => {
   currentStudent.value = {
     student_id: '',
     uwb_id: '',
+    class_id:'',
     name: '',
     age: '',
+    seat_x: '',
+    seat_y: '',
     specialNeeds: [],
   };
   editingStudent.value = false;
@@ -141,7 +163,7 @@ const deleteStudent = (student_id) => {
 const saveStudent = () => {
   if (editingStudent.value) {
     // 更新学生信息
-    const index = students.value.findIndex(s => s.id === currentStudent.value.id);
+    const index = students.value.findIndex(s => s.student_id === currentStudent.value.student_id);
     students.value[index] = { ...currentStudent.value };
     studentStore().edit_studentInfo(currentStudent.value);
   } else {
@@ -260,7 +282,7 @@ dialog {
   border: none;
   border-radius: 8px;
   padding: 20px;
-  width: 500px;
+  width: fit-content;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 

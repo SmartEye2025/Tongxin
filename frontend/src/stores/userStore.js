@@ -6,7 +6,7 @@ export const userStore = defineStore("classStore", {
       user_id: null,
       account:'',
       password:'',
-      is_login:false
+      is_login:false,
     }
   },
   getters: {

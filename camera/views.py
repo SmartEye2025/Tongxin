@@ -6,10 +6,9 @@ from datetime import datetime, timedelta
 from django.http import JsonResponse
 from django.http import HttpResponse
 from django.db.models import Sum, Count
-from django.db.models.functions import ExtractWeekDay
 from camera.models import *
 from camera.mqtt_client import client
-from camera.consumers import frame_queue
+# from camera.consumers import frame_queue
 
 from .models import ParentStudentBinding
 from .models import Student
@@ -34,9 +33,12 @@ def get_student_list(request):
             studentList.append({
                 'student_id': a.student_id,
                 'uwb_id': a.uwb_id,
+                'class_id':a.class_id,
                 'name': a.name,
                 'age': a.age,
-                'specialNeeds':a.speciality.split(' ')
+                'specialNeeds':a.speciality.split(' '),
+                'seat_x': a.seat_x,
+                'seat_y': a.seat_y,
             })
         return JsonResponse({'studentList':studentList},status=200)
     else:
@@ -49,8 +51,11 @@ def edit_student_info(request):
         data = json.loads(request.body)
         student = Student.objects.get(student_id=data['student_id'])
         student.uwb_id = data['uwb_id']
+        student.class_id = data['class_id']
         student.name = data['name']
         student.age = data['age']
+        student.seat_x = data['seat_x']
+        student.seat_y = data['seat_y']
         student.speciality = ' '.join(data['specialNeeds'])
         student.save()
         return HttpResponse('success', status=200)
@@ -65,8 +70,11 @@ def add_student(request):
         student = Student(
             student_id=data['student_id'],
             uwb_id=data['uwb_id'],
+            class_id = data['class_id'],
             name=data['name'],
             age=data['age'],
+            seat_x = data['seat_x'],
+            seat_y = data['seat_y'],
             speciality=' '.join(data['specialNeeds']),
         )
         student.save()
@@ -146,11 +154,14 @@ def get_frame(request):
     if request.method != 'GET':
         return HttpResponse('Expect a POST request', status=405)
     try:
-        # 添加超时避免永久阻塞
-        frame = frame_queue.get(timeout=2.0)  # 2秒超时
-        _, buffer = cv2.imencode('.jpg', cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
+        # # 添加超时避免永久阻塞
+        # frame = frame_queue.get(timeout=2.0)  # 2秒超时
+        # _, buffer = cv2.imencode('.jpg', cv2.cvtColor(frame,cv2.COLOR_RGB2BGR))
+        # return JsonResponse({
+        #     'data': base64.b64encode(buffer).decode()
+        # })
         return JsonResponse({
-            'data': base64.b64encode(buffer).decode()
+            'data': ''
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -333,6 +344,8 @@ def register(request):
 def index(request):
     return HttpResponse("_____")
 
+from django.contrib.auth import authenticate  # 导入authenticate
+
 @csrf_exempt
 # 用户登录
 def user_login(request):
@@ -342,7 +355,8 @@ def user_login(request):
             username = data.get('username')
             password = data.get('password')
 
-            user = User(username=username, password=password)
+            # 正确验证用户：查询数据库并校验密码
+            user = authenticate(username=username, password=password)
 
             if user is not None:
                 login(request, user)
@@ -739,6 +753,10 @@ class BehaviorStatistics:
         elif time_range == '本月':    # 1号到今天
             start_date = today.replace(day=1)
             end_date = today
+        elif '|' in time_range: # 自定义日期范围
+            str1,str2 = time_range.split('|')
+            start_date = datetime.strptime(str1, '%Y-%m-%d')
+            end_date = datetime.strptime(str2, '%Y-%m-%d')
         else:
             raise ValueError(f"不支持的时间范围: {time_range}")
         return start_date, end_date
@@ -775,19 +793,29 @@ class BehaviorStatistics:
             return query.filter(subject=subject)
         return query
 
-    # 获取统计数据，用于页面最上面的统计框
     @classmethod
-    def get_statistics(cls, time_range, subject='全部学科'):
-        # 本时间段
+    def filter_by_time_range(cls, query, time_range):
         start, end = cls.get_date_range(time_range)
-
         start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
         end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )###
+        return query.filter(date__range=[start_datetime, end_datetime])
 
-        query = cls.filter_by_subject(query, subject)
+    @classmethod
+    def get_bound_student(cls, username):
+        try:
+            user = User.objects.get(username=username)
+            binding = ParentStudentBinding.objects.get(user=user, is_active=True)
+            return binding.student_id
+        except (User.DoesNotExist, ParentStudentBinding.DoesNotExist):
+            return None
+
+    # 获取统计数据，用于页面最上面的统计框
+    @classmethod
+    def get_statistics(cls, time_range, subject='全部学科', student_id=None):
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range) # 时间筛选
+        query = cls.filter_by_subject(query, subject)   # 学科筛选
+
         current_stats = query.aggregate(
             handup_count=Sum('hand_up'),
             leave_count=Sum('off_seat'),
@@ -799,18 +827,24 @@ class BehaviorStatistics:
 
         # 上一时间段
         prev_range = cls.get_previous_range(time_range)
-        if isinstance(prev_range, str):
+        if not prev_range:
+            return {
+                'focus_time': round(current['focus_average'], 1),
+                'focus_trend': 0,
+                'leave_count': current['leave_count'],
+                'leave_trend': 0,
+                'handup_count': current['handup_count'],
+                'handup_trend': 0,
+            }
+        elif isinstance(prev_range, str):
             prev_start, prev_end = cls.get_date_range(prev_range)
         else:
             prev_start, prev_end = prev_range
-
         prev_start_datetime = timezone.make_aware(datetime.combine(prev_start, datetime.min.time()))
         prev_end_datetime = timezone.make_aware(datetime.combine(prev_end, datetime.max.time()))
-
         prev_query = Behavior.objects.filter(
             date__range=[prev_start_datetime, prev_end_datetime]
         )###
-
         prev_stats = prev_query.aggregate(
             handup_prev=Sum('hand_up'),
             leave_prev=Sum('off_seat'),
@@ -831,14 +865,11 @@ class BehaviorStatistics:
 
     # 获取一周的每日数据，用于统计图（柱状图和折线图）
     @classmethod
-    def get_weekly_data(cls, time_range, subject='全部学科'):
-        start, end = cls.get_date_range(time_range)
-        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
-        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )
-        query = cls.filter_by_subject(query, subject)
+    def get_weekly_data(cls, time_range, subject='全部学科', student_id=None):
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range)  # 时间筛选
+        query = cls.filter_by_subject(query, subject)  # 学科筛选
+
         records = list(query)
         if time_range == '本月':  # 一月 按周算
             distraction_counts = [0] * 4
@@ -851,7 +882,7 @@ class BehaviorStatistics:
                     focus_time[week_of_month] += record.focus_time or 0
             # 将专注时间转换为五分钟
             focus_time = [round(hours / 5, 1) for hours in focus_time]
-        else:   # 一周 按天算
+        elif '周' in time_range:   # 一周 按天算
             distraction_counts = [0] * 5
             focus_time = [0] * 5
             for record in records:
@@ -860,6 +891,17 @@ class BehaviorStatistics:
                             record.look_around or 0) + (record.off_seat or 0) + (record.sleeping or 0)
                 focus_time[weekday] += record.focus_time or 0
             focus_time = [round(hours / 5, 1) for hours in focus_time]
+        else:  # 自定义日期区间
+            distraction_counts = []
+            focus_time = []
+            for record in records:
+                distraction_counts.append((record.stand_up or 0) + (record.hyperactive or 0) + (
+                            record.look_around or 0) + (record.off_seat or 0) + (record.sleeping or 0))
+                focus_time.append(record.focus_time)
+            # 限制列表长度
+            if len(focus_time)>20:
+                focus_time = focus_time[:20]
+                distraction_counts = distraction_counts[:20]
 
         return {
             'focus_time': focus_time,
@@ -868,16 +910,11 @@ class BehaviorStatistics:
 
     # 获取各种分心次数，用于饼状图
     @classmethod
-    def get_distraction_types(cls, time_range, subject='全部学科'):
-        start, end = cls.get_date_range(time_range)
+    def get_distraction_types(cls, time_range, subject='全部学科', student_id=None):
+        query = Behavior.objects.filter(student__student_id=student_id)
+        query = cls.filter_by_time_range(query, time_range)  # 时间筛选
+        query = cls.filter_by_subject(query, subject)  # 学科筛选
 
-        start_datetime = timezone.make_aware(datetime.combine(start, datetime.min.time()))
-        end_datetime = timezone.make_aware(datetime.combine(end, datetime.max.time()))
-        query = Behavior.objects.filter(
-            date__range=[start_datetime, end_datetime]
-        )  ###
-
-        query = cls.filter_by_subject(query, subject)
         type_stats = query.aggregate(
             hyperactive=Sum('hyperactive'),
             look_around=Sum('look_around'),
@@ -895,27 +932,118 @@ class BehaviorStatistics:
 
 def weekly_data(request):
     try:
-        time_range = request.GET.get('time_range', '本周')
-        subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_weekly_data(time_range, subject)
+        get_data = request.GET
+        time_range = get_data.get('time_range', '本周')
+        subject = get_data.get('subject', '全部学科')
+        username = get_data.get('username', None)  # 家长端通过用户名查询
+        student_id = get_data.get('student_id', None)  # 通过学号直接查询
+        class_id = get_data.get('class_id', None)  # 通过班级号查询
+        data = None
+        if username:
+            student_id = BehaviorStatistics.get_bound_student(username)
+            data = BehaviorStatistics.get_weekly_data(time_range, subject, student_id)
+        elif student_id:
+            data = BehaviorStatistics.get_weekly_data(time_range, subject, student_id)
+        elif class_id:
+            # 将每个学生行为数据累加
+            for student in Student.objects.filter(class_id=class_id):
+                student_id = student.student_id
+                temp = BehaviorStatistics.get_weekly_data(time_range, subject, student_id)
+                if not data:
+                    data = temp
+                else:
+                    for key in data.keys():
+                        for i in range(len(data[key])):
+                            data[key][i] += temp[key][i]
+        print('333',data)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
+
 def distraction(request):
     try:
-        time_range = request.GET.get('time_range', '本周')
-        subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_distraction_types(time_range, subject)
+        get_data = request.GET
+        time_range = get_data.get('time_range', '本周')
+        subject = get_data.get('subject', '全部学科')
+        username = get_data.get('username', None)  # 家长端通过用户名查询
+        student_id = get_data.get('student_id', None) # 通过学号直接查询
+        class_id = get_data.get('class_id', None) # 通过班级号查询
+        data = None
+        if username:
+            student_id = BehaviorStatistics.get_bound_student(username)
+            data = BehaviorStatistics.get_distraction_types(time_range, subject, student_id)
+        elif student_id:
+            data = BehaviorStatistics.get_distraction_types(time_range, subject, student_id)
+        elif class_id:
+            # 将每个学生行为数据累加
+            for student in Student.objects.filter(class_id=class_id):
+                student_id = student.student_id
+                temp = BehaviorStatistics.get_distraction_types(time_range, subject, student_id)
+                if not data:
+                    data = temp
+                else:
+                    for i in range(len(data)):
+                        data[i]['count'] += temp[i]['count']
+        print('222',data)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
 def statistics(request):
     try:
-        time_range = request.GET.get('time_range', '本周')
-        subject = request.GET.get('subject', '全部学科')
-        data = BehaviorStatistics.get_statistics(time_range, subject)
+        get_data = request.GET
+        time_range = get_data.get('time_range', '本周')
+        subject = get_data.get('subject', '全部学科')
+        username = get_data.get('username', None)  # 家长端通过用户名查询
+        student_id = get_data.get('student_id', None)  # 通过学号直接查询
+        class_id = get_data.get('class_id', None)  # 通过班级号查询
+        data = None
+        if username:
+            student_id = BehaviorStatistics.get_bound_student(username)
+            data = BehaviorStatistics.get_statistics(time_range, subject, student_id)
+        elif student_id:
+            data = BehaviorStatistics.get_statistics(time_range, subject, student_id)
+        elif class_id:
+            cnt = 0
+            # 将每个学生行为数据累加
+            for student in Student.objects.filter(class_id=class_id):
+                student_id = student.student_id
+                cnt += 1
+                temp = BehaviorStatistics.get_statistics(time_range, subject, student_id)
+                if not data:
+                    data = temp
+                elif temp:
+                    for key in data.keys():
+                        data[key] += temp[key]
+            if data:
+                for key in data.keys():
+                    data[key] = round(data[key]/cnt, 1)
+        print('111',data)
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+def get_rank(request):
+    try:
+        get_data = request.GET
+        time_range = get_data.get('time_range', '本周')
+        subject = get_data.get('subject', '全部学科')
+        class_id = get_data.get('class_id', None) # 通过班级号查询
+        data = []
+        if class_id:
+            for student in Student.objects.filter(class_id=class_id):
+                student_id = student.student_id
+                temp = BehaviorStatistics.get_statistics(time_range, subject, student_id)
+                data.append({})
+                data[-1]['student_id'] = student_id
+                data[-1]['name'] = student.name
+                data[-1]['leaveTimes'] = temp['leave_count']
+                data[-1]['focusTime'] = temp['focus_time']
+                data[-1]['progress'] = temp['focus_trend']
+        data.sort(key=lambda x: x['progress'], reverse=True)
+        print('444',data)
         return JsonResponse({'success': True, 'data': data})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})

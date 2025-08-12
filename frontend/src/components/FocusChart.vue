@@ -9,8 +9,9 @@
 
 <script>
 import { Chart, registerables } from 'chart.js';
-import { timeRangeStore } from '@/stores/timeRangeStore'
+import { analyseStore } from '@/stores/analyseStore.js'
 import { mapState } from 'pinia'
+import request from "@/utils/request.js";
 
 Chart.register(...registerables);
 
@@ -19,29 +20,10 @@ export default {
   data() {
     return {
       chart: null,
-      chartData: {
-        labels: [],
-        datasets: [
-          {
-            label: '专注时长(小时)',
-            backgroundColor: 'rgba(54, 162, 235, 0.5)',
-            borderColor: 'rgba(54, 162, 235, 1)',
-            borderWidth: 1,
-            data: []
-          },
-          {
-            label: '分心次数',
-            backgroundColor: 'rgba(255, 99, 132, 0.5)',
-            borderColor: 'rgba(255, 99, 132, 1)',
-            borderWidth: 1,
-            data: []
-          }
-        ]
-      }
     };
   },
   computed: {
-    ...mapState(timeRangeStore, ['range', 'timeRangeLabel'])
+    ...mapState(analyseStore, ['range'])
   },
   watch: {
     range: {
@@ -57,11 +39,29 @@ export default {
     }
   },
   methods: {
-    renderChart() {
+    renderChart(chart_data) {
       const ctx = this.$refs.barCanvas.getContext('2d');
       this.chart = new Chart(ctx, {
         type: 'bar',
-        data: this.chartData,
+        data:{
+          labels: chart_data.labels,
+          datasets: [
+            {
+              label: '专注时长(分钟)',
+              backgroundColor: 'rgba(54, 162, 235, 0.5)',
+              borderColor: 'rgba(54, 162, 235, 1)',
+              borderWidth: 1,
+              data: chart_data.focusTimes
+            },
+            {
+              label: '分心次数',
+              backgroundColor: 'rgba(255, 99, 132, 0.5)',
+              borderColor: 'rgba(255, 99, 132, 1)',
+              borderWidth: 1,
+              data: chart_data.distractionCounts
+            }
+          ]
+        },
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -106,58 +106,74 @@ export default {
     },
     async loadData(range) {
       try {
-        // 模拟数据 - 实际项目中替换为API调用
-        const mockData = this.generateMockData(range);
-        console.log(mockData);
-        this.chartData.labels = mockData.labels;
-        this.chartData.datasets[0].data = mockData.focusTimes;
-        this.chartData.datasets[1].data = mockData.distractionCounts;
+        const chart_data = await this.fetchData(range);
+        console.log(chart_data);
         if (this.chart) {
-          this.updateChart();
+          // this.chart.clear()
+          this.chart.data.labels = chart_data.labels;
+          this.chart.data.datasets[0].data = chart_data.focusTimes;
+          this.chart.data.datasets[1].data = chart_data.distractionCounts;
+          // setTimeout(() => {
+          //   this.chart.update();
+          // }, 500); // 延迟执行
+          // this.chart.update();
         } else {
-          this.renderChart();
+          this.renderChart(chart_data);
         }
       } catch (error) {
-        console.error('获取专注力数据失败:', error);
+        console.error('渲染专注力数据失败:', error);
       }
     },
-    updateChart() {
-      this.chart.data.labels = this.chartData.labels;
-      this.chart.data.datasets[0].data = this.chartData.datasets[0].data;
-      this.chart.data.datasets[1].data = this.chartData.datasets[1].data;
-      this.chart.update();
-    },
-    generateMockData(range) {
+    async fetchData(range) {
       // 根据时间范围生成不同的模拟数据
-      const labels = [];
-      const focusTimes = [];
-      const distractionCounts = [];
-
-      if (range === 'day') {
-        // 今日数据 - 按小时
-        for (let i = 8; i <= 17; i++) {
-          if(11<i&&i<14) continue;
-          labels.push(`${i}:00`);
-          focusTimes.push((Math.random()*0.6+0.2).toFixed(1));
-          distractionCounts.push(Math.floor(Math.random() * 5));
+      let labels = [];
+      let focusTimes = [];
+      let distractionCounts = [];
+      const response = await request.get("/weekly_data/", {
+        params: {
+          time_range: range,
+          class_id: '001',
+          student_id: this.selectedId!=='-1' ? this.selectedId : null
         }
-      } else if (range === 'week') {
+      });
+      console.log('333',response);
+      focusTimes = response.data.focus_time
+      distractionCounts = response.data.distraction_count
+      if (range === '本周' || range === '上周') {
         // 本周数据 - 按天
-        const days = ['周一', '周二', '周三', '周四', '周五'];
-        days.forEach(day => {
-          labels.push(day);
-          focusTimes.push((Math.random() * 5 + 2.5).toFixed(1));
-          distractionCounts.push(Math.floor(Math.random() * 15) + 5);
-        });
-      } else {
-        // 本月数据 - 按周
-        for (let i = 1; i <= 4; i++) {
-          labels.push(`第${i}周`);
-          focusTimes.push((Math.random() * 25 + 8).toFixed(1));
-          distractionCounts.push(Math.floor(Math.random() * 50) + 20);
-        }
+        labels = ['周一', '周二', '周三', '周四', '周五'];
       }
+      else if (range === '本月') {
+        // 本月数据 - 按周
+        labels = ['第一周', '第二周', '第三周', '第四周'];
+      }
+      else{
+        let str1 = range.split('|')[0];
+        let str2 = range.split('|')[1];
+        const startDate = new Date(str1);
+        const endDate = new Date(str2);
+        // 检查日期是否有效
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          console.error("无效的日期格式，请使用 YYYY-MM-DD");
+          return [];
+        }
+        // 确保 startDate <= endDate
+        if (startDate > endDate) {
+          console.error("开始日期不能晚于结束日期");
+          return [];
+        }
+        let currentDate = new Date(startDate);
 
+        while (currentDate <= endDate) {
+          // 提取月和日（注意：月份从 0 开始，所以要 +1）
+          const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+          const day = String(currentDate.getDate()).padStart(2, '0');
+          labels.push(`${month}-${day}`);
+          // 增加一天
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+        labels = labels.slice(0,focusTimes.length);
+      }
       return { labels, focusTimes, distractionCounts };
     }
   },

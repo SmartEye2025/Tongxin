@@ -1,3 +1,5 @@
+from django.contrib.auth.hashers import make_password
+from django.utils.translation import gettext_lazy as _
 from django.db import models
 from django.db.models import Manager
 from django.contrib.auth.models import AbstractUser
@@ -11,19 +13,22 @@ class Student(models.Model):
     name = models.CharField(max_length=20, verbose_name="姓名")
     student_id = models.CharField(max_length=20,verbose_name="学生ID")
     uwb_id = models.CharField(max_length=20, verbose_name="UWB定位标签id")
+    class_id = models.CharField(max_length=100,verbose_name="班级号",default="001")
+    gender = models.CharField(max_length=10,verbose_name='性别',null=True)
     age = models.IntegerField(verbose_name="年龄",default=0)
     speciality = models.CharField(max_length=100,default="无",verbose_name="特殊需求")
     seat_x = models.FloatField(default=0.,verbose_name="座位横坐标")
     seat_y = models.FloatField(default=0., verbose_name="座位纵坐标")
 
     def __str__(self):
-        return self.student_id
+        return f"{self.name} 学号：{self.student_id}"
 
 # 行为统计表
 class Behavior(models.Model):
     object = Manager
     date = models.DateTimeField(auto_now_add=False, editable=True)
     subject = models.CharField(max_length=100, verbose_name="学科",default="语文")
+    student = models.ForeignKey(Student,on_delete=models.CASCADE,verbose_name="学生",default=None)
 
     hand_up = models.IntegerField(verbose_name="举手", default=0)
     focus_time = models.FloatField(verbose_name="专注时长(分钟)",default=0)
@@ -62,23 +67,24 @@ def user_avatar_path(instance, filename):
 
 # 用户模型
 class User(models.Model):
-    object = Manager
+    # 扩展用户模型
     nickname = models.CharField(max_length=50, blank=True, null=True, verbose_name='昵称')
-    avatar = models.ImageField(
-        upload_to=user_avatar_path,
-        blank=True,
-        null=True,
-        verbose_name='头像',
-        default='avatars/default.png'  # 默认头像
-    )
+    username = models.CharField(max_length=150,unique=True,default="user",verbose_name="用户名")
+    password = models.CharField(_('password'),max_length=128,default=make_password('temporary_password'))
+    avatar = models.ImageField(upload_to=user_avatar_path,blank=True,null=True,verbose_name='头像',default='static/img/pig.png')
+    class_id = models.CharField(max_length=100,verbose_name="班级号",default='001')
+
+    class Meta:
+        verbose_name = '用户'
+        verbose_name_plural = '用户管理'
 
     def __str__(self):
-        return self.nickname
+        return f"{self.username} 昵称：{self.nickname}"
 
     @property
     def avatar_url(self):
         # 如果没有头像，返回默认头像URL
-        return self.avatar.url if self.avatar else '/media/avatars/default.png'
+        return self.avatar.url if self.avatar else 'static/img/pig.png'
 
 # 家长学生绑定关系模型
 class ParentStudentBinding(models.Model):

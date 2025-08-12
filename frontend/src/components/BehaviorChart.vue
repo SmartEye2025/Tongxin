@@ -9,9 +9,9 @@
 
 <script>
 import Chart from 'chart.js/auto';
-import { classStore } from '@/stores/classStore.js';
-import { timeRangeStore } from '@/stores/timeRangeStore'
-import { mapState } from 'pinia'
+import {analyseStore} from '@/stores/analyseStore.js'
+import {mapState} from 'pinia'
+import request from "@/utils/request.js";
 
 
 export default {
@@ -20,16 +20,16 @@ export default {
     return {
       chart: null,
       stats: {
-        '站立': 4,
-        '离座': 5,
-        '跑动': 2,
-        '东张西望':11,
-        '下蹲':2
+        '多动': 0,
+        '东张西望': 0,
+        '离座': 0,
+        '瞌睡': 0,
+        '起立': 0,
       }
     };
   },
   computed: {
-    ...mapState(timeRangeStore, ['range'])
+    ...mapState(analyseStore, ['range'])
   },
   watch: {
     range: {
@@ -45,34 +45,27 @@ export default {
     }
   },
   methods: {
-    // 状态文本
-    getStatusText(status) {
-      switch(status) {
-        case 'offSeat': return '离座'
-        case 'run': return '跑动'
-        case 'lookAround': return '东张西望'
-        case 'stand': return '站立'
-        case 'sleeping': return '瞌睡'
-        default: return '正常'
-      }
-    },
     async loadData(range) {
+      console.log(range)
       try {
-        console.log(range);
-        //  替换键
-        this.stats = Object.fromEntries(
-          Object.entries(classStore().behaviorStats).map(([key, value]) => [
-            this.getStatusText(key),
-            value
-          ])
-        );
+        const response = await request.get("/distraction_types/", {
+          params: {
+            time_range: range,
+            class_id: '001',
+            student_id: analyseStore().selectedId!=='-1' ? analyseStore().selectedId : null
+          }
+        });
+        console.log('222',response);
+        response.data.forEach(item => {
+          this.stats[item.type] = item.count;
+        })
         if (this.chart) {
           this.updateChart();
         } else {
           this.renderChart();
         }
       } catch (error) {
-        console.error('获取统计数据失败:', error);
+        console.error('渲染统计数据失败:', error);
       }
     },
     renderChart() {
@@ -110,7 +103,7 @@ export default {
             },
             tooltip: {
               callbacks: {
-                label: function(context) {
+                label: function (context) {
                   const label = context.label || '';
                   const value = context.raw || 0;
                   const total = context.dataset.data.reduce((a, b) => a + b, 0);
