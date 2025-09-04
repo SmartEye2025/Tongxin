@@ -48,4 +48,9 @@ urlpatterns = [
     path('statistics/', views.statistics),
     path('weekly_data/', views.weekly_data),
     path('distraction_types/', views.distraction),
+    # 新增
+    path('notices/', views.list_notices),
+    path('evaluations/', views.list_evaluations),
+    path('messages/', views.list_messages),
+    path('leave_requests/', views.create_leave_request),
 ]

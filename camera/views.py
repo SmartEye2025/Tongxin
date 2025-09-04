@@ -928,5 +928,121 @@ def statistics(request):
         return JsonResponse({'success': False, 'error': str(e)})
 
 
+
+
+# 新增
+
+
+# ---------------- 公告 / 评价 / 消息 / 请假 接口 ----------------
+@require_http_methods(["GET"])
+def list_notices(request):
+    try:
+        notices = Notice.objects.all().order_by('-created_at')[:50]
+        data = [
+            {
+                'id': n.id,
+                'title': n.title,
+                'content': n.content,
+                'created_at': n.created_at.strftime('%Y-%m-%d %H:%M')
+            } for n in notices
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def list_evaluations(request):
+    try:
+        username = request.GET.get('username')
+        student_id = BehaviorStatistics.get_bound_student(username)
+        if not student_id:
+            return JsonResponse({'success': True, 'data': []})
+        evaluations = Evaluation.objects.filter(student__student_id=student_id).order_by('-created_at')[:100]
+        data = [
+            {
+                'id': e.id,
+                'student_name': e.student.name,
+                'subject': e.subject,
+                'teacher': e.teacher_name,
+                'comment': e.comment,
+                'rating': e.rating,
+                'created_at': e.created_at.strftime('%Y-%m-%d %H:%M')
+            } for e in evaluations
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def list_messages(request):
+    try:
+        username = request.GET.get('username')
+        if not username:
+            return JsonResponse({'success': True, 'data': []})
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'success': True, 'data': []})
+        msgs = Message.objects.filter(user=user).order_by('-created_at')[:100]
+        data = [
+            {
+                'id': m.id,
+                'title': m.title,
+                'content': m.content,
+                'is_read': m.is_read,
+                'created_at': m.created_at.strftime('%Y-%m-%d %H:%M')
+            } for m in msgs
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_leave_request(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        reason = data.get('reason')
+        leave_type = data.get('leave_type', '事假')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        if not all([username, reason, start_date, end_date]):
+            return JsonResponse({'success': False, 'error': '参数缺失'}, status=400)
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+            return JsonResponse({'success': False, 'error': '用户不存在'}, status=404)
+
+        student_id = BehaviorStatistics.get_bound_student(username)
+        if not student_id:
+            return JsonResponse({'success': False, 'error': '未绑定学生'}, status=400)
+
+        try:
+            student = Student.objects.get(student_id=student_id)
+        except Student.DoesNotExist:
+            return JsonResponse({'success': False, 'error': '学生不存在'}, status=404)
+
+        leave = LeaveRequest.objects.create(
+            user=user,
+            student=student,
+            reason=reason,
+            leave_type=leave_type,
+            start_date=start_date,
+            end_date=end_date,
+            status='待审核'
+        )
+        # 同时给用户生成一条消息
+        Message.objects.create(user=user, title='请假提交成功', content=f'您的请假申请已提交：{start_date}~{end_date} {leave_type}')
+
+        return JsonResponse({'success': True, 'data': {'id': leave.id}})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
 # daphne Tongxin.asgi:application --port 8001
 # daphne Tongxin.asgi:application -p 8001 -b 192.168.1.2

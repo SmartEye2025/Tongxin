@@ -18,6 +18,10 @@ class Student(models.Model):
     seat_x = models.FloatField(default=0.,verbose_name="座位横坐标")
     seat_y = models.FloatField(default=0., verbose_name="座位纵坐标")
 
+    class Meta:
+        verbose_name = _("学生")
+        verbose_name_plural = _("学生管理")
+
     def __str__(self):
         return f"{self.name} 学号：{self.student_id}"
 
@@ -36,8 +40,12 @@ class Behavior(models.Model):
     sleeping = models.IntegerField(verbose_name="瞌睡", default=0)
     stand_up = models.IntegerField(verbose_name="起立", default=0)
 
+    class Meta:
+        verbose_name = _("学生行为")
+        verbose_name_plural = _("行为管理")
+
     def __str__(self):
-        return self.date.strftime("%Y-%m-%d %H:%M:%S")
+        return f"{self.student.name}: {self.date.strftime("%Y-%m-%d %H:%M:%S")}"
 
 # 教室
 class Classroom(models.Model):
@@ -92,5 +100,78 @@ class ParentStudentBinding(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='绑定时间')
     is_active = models.BooleanField(default=True, verbose_name='是否有效')
 
+    class Meta:
+        verbose_name = _("关系绑定")
+        verbose_name_plural = _("家长学生绑定")
+
     def __str__(self):
-        return f"{self.user.nickname} -> {self.student_id}"
+        return f"{self.user.nickname}->{self.student_name}:{self.student_id}"
+
+
+
+# 新增
+# ------------------ 公告 / 评价 / 消息 / 请假 ----------------------
+class Notice(models.Model):
+    object = Manager
+    title = models.CharField(max_length=200, verbose_name='标题')
+    content = models.TextField(verbose_name='内容')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        verbose_name = _("公告")
+        verbose_name_plural = _("公告管理")
+
+    def __str__(self):
+        return self.title
+
+
+class Evaluation(models.Model):
+    object = Manager
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, verbose_name='学生')
+    subject = models.CharField(max_length=100, verbose_name='学科', default='综合')
+    teacher_name = models.CharField(max_length=100, verbose_name='教师', default='')
+    comment = models.TextField(verbose_name='评价内容', default='')
+    rating = models.IntegerField(verbose_name='评分', default=5)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        verbose_name = _("评价")
+        verbose_name_plural = _("评价管理")
+
+    def __str__(self):
+        return f"{self.student.name} - {self.subject}"
+
+
+class Message(models.Model):
+    object = Manager
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='用户', related_name='messages')
+    title = models.CharField(max_length=200, verbose_name='标题')
+    content = models.TextField(verbose_name='内容')
+    is_read = models.BooleanField(default=False, verbose_name='是否已读')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        verbose_name = _("消息")
+        verbose_name_plural = _("消息管理")
+
+    def __str__(self):
+        return f"给 {self.user.nickname} -- {self.title}"
+
+
+class LeaveRequest(models.Model):
+    object = Manager
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='用户')
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, verbose_name='学生')
+    reason = models.TextField(verbose_name='请假原因')
+    leave_type = models.CharField(max_length=50, verbose_name='请假类型', default='事假')
+    start_date = models.DateField(verbose_name='开始日期')
+    end_date = models.DateField(verbose_name='结束日期')
+    status = models.CharField(max_length=20, verbose_name='状态', default='待审核')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        verbose_name = _("请假")
+        verbose_name_plural = _("请假管理")
+
+    def __str__(self):
+        return f"{self.student.name} {self.start_date}~{self.end_date} {self.leave_type}"
