@@ -109,7 +109,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'tongxin_db',
         'USER': 'root',
-        'PASSWORD': 'fd@&ab.17E9Q', # bag200509
+        'PASSWORD': 'bag200509',
         'HOST': 'localhost',
         'PORT': '3306',
         'OPTIONS': {
@@ -171,4 +171,3 @@ MEDIA_ROOT = os.path.join(BASE_DIR,'media')
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 允许所有域名跨域（或指定域名）
 CORS_ALLOW_ALL_ORIGINS = True  # 开发环境用，生产环境应设为 False 并指定域名
-AUTH_USER_MODEL = 'camera.User'

@@ -10,7 +10,7 @@ from camera.models import Behavior, Student  # 确保同时导入 Student
 import string
 
 start_date = datetime.date(2025, 7, 1)
-end_date = datetime.date(2025, 7, 30)
+end_date = datetime.date(2025, 8, 31)
 delta = datetime.timedelta(days=1)
 subjects = ["语文", "数学", "外语", "美术"]
 subject_weights = [0.3, 0.3, 0.2, 0.2]  # 权重移到顶部，避免重复定义

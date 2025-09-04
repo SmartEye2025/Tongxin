@@ -3,13 +3,6 @@ import { defineStore } from 'pinia'
 export const classStore = defineStore('class', {
   state: () => ({
     students: [],
-    behaviorStats: {
-      offSeat: 5,
-      stand:3,
-      run:1,
-      lookAround: 12,
-      sleeping: 3
-    },
     enableHotMap:true,
     enableAutoRemind: true,
     remindStudentId:{ value: ['0'], timestamp: Date.now() },

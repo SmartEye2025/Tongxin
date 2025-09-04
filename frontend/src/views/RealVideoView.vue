@@ -182,7 +182,7 @@ export default {
       mqtt_messages: [],
       client: null,
       lastUpdateTime: '刚刚',
-      defaultAvatar: 'https://cdn.vuetifyjs.com/images/lists/1.jpg',
+      defaultAvatar: '/src/assets/pig.png',
       // 重点关注行为
       selectedBehavior: ['off_seat','sleeping'],
       behaviorTypes: [

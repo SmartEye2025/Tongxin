@@ -1,9 +1,9 @@
 import axios from "axios";
 
 const service = axios.create({
-  // baseURL: "http://localhost:8001",
-  baseURL: "http://192.168.1.2:8001",
-  timeout: 5000,
+  baseURL: "http://localhost:8001",
+  // baseURL: "http://43.138.252.29:8001",
+  timeout: 10000,
 });
 
 // 请求拦截器

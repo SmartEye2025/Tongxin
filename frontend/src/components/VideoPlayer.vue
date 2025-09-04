@@ -58,7 +58,8 @@ export default {
       this.img = new Image();
 
       try {
-        this.socket = new WebSocket(`ws://192.168.1.2:8001/ws/video/`);
+        // this.socket = new WebSocket(`ws://192.168.1.2:8001/ws/video/`);
+        this.socket = new WebSocket(`ws://localhost:8001/ws/video/`);
 
         this.socket.onopen = () => {
           this.connectionStatus = "connected";

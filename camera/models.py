@@ -13,14 +13,12 @@ class Student(models.Model):
     name = models.CharField(max_length=20, verbose_name="姓名")
     student_id = models.CharField(max_length=20,verbose_name="学生ID")
     uwb_id = models.CharField(max_length=20, verbose_name="UWB定位标签id")
+    class_id = models.CharField(max_length=100,verbose_name="班级号",default="001")
+    gender = models.CharField(max_length=10,verbose_name='性别',null=True)
     age = models.IntegerField(verbose_name="年龄",default=0)
     speciality = models.CharField(max_length=100,default="无",verbose_name="特殊需求")
     seat_x = models.FloatField(default=0.,verbose_name="座位横坐标")
     seat_y = models.FloatField(default=0., verbose_name="座位纵坐标")
-
-    class Meta:
-        verbose_name = _("学生")
-        verbose_name_plural = _("学生管理")
 
     def __str__(self):
         return f"{self.name} 学号：{self.student_id}"
@@ -40,12 +38,8 @@ class Behavior(models.Model):
     sleeping = models.IntegerField(verbose_name="瞌睡", default=0)
     stand_up = models.IntegerField(verbose_name="起立", default=0)
 
-    class Meta:
-        verbose_name = _("学生行为")
-        verbose_name_plural = _("行为管理")
-
     def __str__(self):
-        return f"{self.student.name}: {self.date.strftime("%Y-%m-%d %H:%M:%S")}"
+        return self.date.strftime("%Y-%m-%d %H:%M:%S")
 
 # 教室
 class Classroom(models.Model):
@@ -72,12 +66,13 @@ def user_avatar_path(instance, filename):
     return os.path.join('avatars', filename)
 
 # 用户模型
-class User(AbstractUser):
+class User(models.Model):
     # 扩展用户模型
     nickname = models.CharField(max_length=50, blank=True, null=True, verbose_name='昵称')
     username = models.CharField(max_length=150,unique=True,default="user",verbose_name="用户名")
     password = models.CharField(_('password'),max_length=128,default=make_password('temporary_password'))
-    avatar = models.ImageField(upload_to=user_avatar_path,blank=True,null=True,verbose_name='头像',default='avatars/default.png')
+    avatar = models.ImageField(upload_to=user_avatar_path,blank=True,null=True,verbose_name='头像',default='static/img/pig.png')
+    class_id = models.CharField(max_length=100,verbose_name="班级号",default='001')
 
     class Meta:
         verbose_name = '用户'
@@ -89,7 +84,7 @@ class User(AbstractUser):
     @property
     def avatar_url(self):
         # 如果没有头像，返回默认头像URL
-        return self.avatar.url if self.avatar else '/media/avatars/default.png'
+        return self.avatar.url if self.avatar else 'static/img/pig.png'
 
 # 家长学生绑定关系模型
 class ParentStudentBinding(models.Model):
@@ -100,26 +95,15 @@ class ParentStudentBinding(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='绑定时间')
     is_active = models.BooleanField(default=True, verbose_name='是否有效')
 
-    class Meta:
-        verbose_name = _("关系绑定")
-        verbose_name_plural = _("家长学生绑定")
-
     def __str__(self):
-        return f"{self.user.nickname}->{self.student_name}:{self.student_id}"
+        return f"{self.user.nickname} -> {self.student_id}"
 
-
-
-# 新增
 # ------------------ 公告 / 评价 / 消息 / 请假 ----------------------
 class Notice(models.Model):
     object = Manager
     title = models.CharField(max_length=200, verbose_name='标题')
     content = models.TextField(verbose_name='内容')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-
-    class Meta:
-        verbose_name = _("公告")
-        verbose_name_plural = _("公告管理")
 
     def __str__(self):
         return self.title
@@ -134,10 +118,6 @@ class Evaluation(models.Model):
     rating = models.IntegerField(verbose_name='评分', default=5)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
-    class Meta:
-        verbose_name = _("评价")
-        verbose_name_plural = _("评价管理")
-
     def __str__(self):
         return f"{self.student.name} - {self.subject}"
 
@@ -150,12 +130,8 @@ class Message(models.Model):
     is_read = models.BooleanField(default=False, verbose_name='是否已读')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
 
-    class Meta:
-        verbose_name = _("消息")
-        verbose_name_plural = _("消息管理")
-
     def __str__(self):
-        return f"给 {self.user.nickname} -- {self.title}"
+        return f"{self.user.username} - {self.title}"
 
 
 class LeaveRequest(models.Model):
@@ -168,10 +144,6 @@ class LeaveRequest(models.Model):
     end_date = models.DateField(verbose_name='结束日期')
     status = models.CharField(max_length=20, verbose_name='状态', default='待审核')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-
-    class Meta:
-        verbose_name = _("请假")
-        verbose_name_plural = _("请假管理")
 
     def __str__(self):
         return f"{self.student.name} {self.start_date}~{self.end_date} {self.leave_type}"

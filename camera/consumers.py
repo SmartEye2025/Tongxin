@@ -14,6 +14,9 @@ from sklearn.neighbors import KDTree
 from asgiref.sync import sync_to_async
 
 
+# result_queue =  queue.Queue(maxsize=5)
+
+
 class VideoConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -167,26 +170,31 @@ class VideoConsumer(AsyncWebsocketConsumer):
         return matched_results
 
     # 接收socket消息
-    async def receive(self, text_data):
-        data = json.loads(text_data)
-        print('socket接收数据：',data)
-        if data.get('type') == 'setting1':
-            self.enableHotMap = data.get('enableHotMap')
-        elif data.get('type') == 'setting2':
-            self.enableAutoRemind = data.get('enableAutoRemind')
-        elif data.get('type') == 'control':
-            # 如果同时提醒多名学生，语音提醒只作用于列表第一个
-            studentList = data.get('studentList')
-            for student_id in studentList:
-                # 发送提醒前先检查该学生当前是否在被提醒状态
-                if not self.student_status[student_id]['status']:
-                    self.send_vibrate_remind(student_id,remind_type=2)
-                    # self.student_status[student_id]['status'] = True  # 由于是教师端控制单次提醒，所以不更新被提醒状态
-            if not self.student_status[studentList[0]]['status']:
-                await self.send_servo_order(studentList[0])
-                # 提醒结束后恢复追踪状态
-                self.gimbal.student_id = None
-                speaker.play(studentList[0])
+    async def receive(self, text_data=None, bytes_data=None):
+        if text_data:
+            data = json.loads(text_data)
+            # print('socket接收数据：',data)
+            if data.get('type') == 'setting1':
+                self.enableHotMap = data.get('enableHotMap')
+            elif data.get('type') == 'setting2':
+                self.enableAutoRemind = data.get('enableAutoRemind')
+            elif data.get('type') == 'control':
+                # 如果同时提醒多名学生，语音提醒只作用于列表第一个
+                studentList = data.get('studentList')
+                for student_id in studentList:
+                    # 发送提醒前先检查该学生当前是否在被提醒状态
+                    if not self.student_status[student_id]['status']:
+                        self.send_vibrate_remind(student_id,remind_type=2)
+                        # self.student_status[student_id]['status'] = True  # 由于是教师端控制单次提醒，所以不更新被提醒状态
+                if not self.student_status[studentList[0]]['status']:
+                    await self.send_servo_order(studentList[0])
+                    # 提醒结束后恢复追踪状态
+                    self.gimbal.student_id = None
+                    speaker.play(studentList[0])
+            elif data.get('type') == 'detect':
+                if result_queue.full():
+                    result_queue.get_nowait()
+                result_queue.put(data.get('results'))
 
     # 向前端发送推理结果
     async def send_result(self, frame, results):
@@ -199,7 +207,6 @@ class VideoConsumer(AsyncWebsocketConsumer):
                 None,
                 lambda: cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1]
             )
-
             # 通道2：文本检测结果
             result_data = json.dumps({
                 "type": "detection",
@@ -286,7 +293,8 @@ class VideoConsumer(AsyncWebsocketConsumer):
             try:
                 start_time = time.time()
                 # 异步获取帧（避免阻塞事件循环）
-                frame = await sync_to_async(lambda: frame_queue.get(timeout=2.0))()
+                frame = await sync_to_async(lambda: frame_queue.get(timeout=1.0))()
+                # result = await sync_to_async(lambda: result_queue.get(timeout=1.0))()
                 loop = asyncio.get_running_loop()
                 annotated_frame,persons_points,behaviors = await loop.run_in_executor(
                     None,
@@ -336,9 +344,16 @@ class VideoConsumer(AsyncWebsocketConsumer):
                     send_frame = annotated_frame
                 else:
                     send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                send_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                final_results = {'1':{
+                    'x': 234,
+                    'y': 523,
+                    'status': 'normal'
+                }}
                 # 发送结果
                 await self.send_result(send_frame,final_results)
                 del frame,annotated_frame
+                # del frame
                 # 精确帧率控制
                 await asyncio.sleep(max(0, 0.03 - (time.time() - start_time)))
 

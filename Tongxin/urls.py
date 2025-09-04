@@ -53,4 +53,5 @@ urlpatterns = [
     path('evaluations/', views.list_evaluations),
     path('messages/', views.list_messages),
     path('leave_requests/', views.create_leave_request),
+    path('get_rank/', views.get_rank),
 ]
